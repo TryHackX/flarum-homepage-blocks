@@ -1,0 +1,31 @@
+{
+    "name": "tryhackx/flarum-homepage-blocks",
+    "description": "Customizable homepage blocks for TryHackX - random movies, tracker stats, advanced filters",
+    "version": "2.0.1",
+    "type": "flarum-extension",
+    "license": "MIT",
+    "require": {
+        "flarum/core": "^2.0.0-beta.7",
+        "flarum/tags": "*"
+    },
+    "suggest": {
+        "fof/discussion-views": "For view count stats",
+        "tryhackx/flarum-topic-rating": "For rating-based filtering and sorting",
+        "tryhackx/flarum-magnet-link": "For magnet link stats"
+    },
+    "autoload": {
+        "psr-4": {
+            "TryHackX\\HomepageBlocks\\": "src/"
+        }
+    },
+    "extra": {
+        "flarum-extension": {
+            "title": "TryHackX Homepage Blocks",
+            "icon": {
+                "name": "fas fa-home",
+                "backgroundColor": "#1a1a2e",
+                "color": "#e74c3c"
+            }
+        }
+    }
+}

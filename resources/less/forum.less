@@ -1,0 +1,683 @@
+// ========================================
+// TryHackX Homepage Blocks - Forum Styles
+// ========================================
+// Light theme by default. Dark theme applied via body.HomepageBlocks--dark class (set by JS).
+
+// ── Light theme LESS variables ──
+@hb-header-bg: #e4e7ec;
+@hb-header-hover: #d9dce3;
+@hb-border: #d1d5db;
+@hb-text: #1f2937;
+@hb-text-muted: #6b7280;
+@hb-accent: #e74c3c;
+@hb-accent-hover: #c0392b;
+@hb-accent-shadow: rgba(231, 76, 60, 0.2);
+@hb-divider: #d1d5db;
+@hb-input-bg: #ffffff;
+@hb-input-border: #d1d5db;
+@hb-section-bg: rgba(240, 242, 245, 0.95);
+@hb-filter-bg: rgba(240, 242, 245, 0.90);
+@hb-toggle: #3b82f6;
+@hb-url: #2563eb;
+@hb-stat-value: #1f2937;
+@hb-btn-hover: #d4d7de;
+@hb-btn-text: #1f2937;
+@hb-btn-text-hover: #111827;
+@hb-placeholder: rgba(107, 114, 128, 0.6);
+
+// ========================================
+// Collapsible Section
+// ========================================
+
+.HomepageSection {
+    margin-bottom: 2px;
+    border-radius: 4px;
+    overflow: hidden;
+
+    &-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 15px;
+        background: @hb-header-bg;
+        cursor: pointer;
+        user-select: none;
+        border-bottom: 1px solid @hb-border;
+        transition: background 0.2s ease;
+
+        &:hover {
+            background: @hb-header-hover;
+        }
+    }
+
+    &-title {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: @hb-text;
+        letter-spacing: 0.5px;
+    }
+
+    &-toggle {
+        color: @hb-toggle;
+        font-size: 12px;
+        transition: transform 0.2s ease;
+    }
+
+    &-body {
+        background: @hb-section-bg;
+        border: 1px solid @hb-border;
+        border-top: none;
+        padding: 20px;
+    }
+
+    &--collapsed .HomepageSection-toggle {
+        transform: rotate(180deg);
+    }
+
+    &--listHeader {
+        margin-top: 5px;
+        margin-bottom: 5px;
+    }
+}
+
+// ========================================
+// Homepage Main Block
+// ========================================
+
+.HomepageMainBlock {
+    &-divider {
+        height: 1px;
+        background: linear-gradient(to right, transparent, @hb-divider, transparent);
+        margin: 18px 0;
+    }
+
+    // Hide orphan dividers (when a component returns null despite passing config check)
+    &-divider:first-child,
+    &-divider:last-child,
+    &-divider + &-divider {
+        display: none;
+    }
+}
+
+// ========================================
+// Random Movie Buttons
+// ========================================
+
+.RandomMovieButtons {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 10px 0;
+
+    &-btn {
+        background: @hb-header-bg !important;
+        color: @hb-btn-text !important;
+        border: 1px solid @hb-border !important;
+        padding: 10px 25px !important;
+        border-radius: 4px !important;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        min-width: 180px;
+        text-align: center;
+
+        &:hover {
+            background: @hb-btn-hover !important;
+            border-color: @hb-accent !important;
+            color: @hb-btn-text-hover !important;
+        }
+
+        &.loading {
+            opacity: 0.7;
+        }
+
+        .icon {
+            margin-right: 6px;
+        }
+    }
+}
+
+// ========================================
+// Tracker Info
+// ========================================
+
+.TrackerInfo {
+    text-align: center;
+
+    &-message {
+        font-size: 14px;
+        color: @hb-text;
+    }
+
+    &-subMessage {
+        font-size: 11px;
+        color: @hb-text-muted;
+        margin-bottom: 8px;
+    }
+
+    &-urls {
+        margin-bottom: 12px;
+    }
+
+    &-url {
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 12px;
+        color: @hb-url;
+        padding: 2px 0;
+    }
+
+    &-copyBtn {
+        background: @hb-header-bg !important;
+        color: @hb-btn-text !important;
+        border: 1px solid @hb-border !important;
+        padding: 8px 30px !important;
+        border-radius: 4px !important;
+        font-size: 13px;
+        transition: all 0.2s ease;
+
+        &:hover {
+            border-color: @hb-accent !important;
+        }
+    }
+}
+
+// ========================================
+// Tracker Stats
+// ========================================
+
+.TrackerStats {
+    text-align: center;
+
+    &-title {
+        font-size: 14px;
+        color: @hb-text;
+    }
+
+    &-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        color: @hb-text-muted;
+        font-size: 13px;
+        padding: 10px 0;
+
+        .LoadingIndicator {
+            margin: 0;
+        }
+    }
+
+    &-error {
+        color: @hb-accent;
+        font-size: 13px;
+        padding: 10px 0;
+    }
+
+    &-grid {
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+        flex-wrap: wrap;
+        padding: 10px 0;
+    }
+
+    &-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        min-width: 90px;
+
+        i {
+            font-size: 18px;
+            color: @hb-accent;
+            margin-bottom: 4px;
+        }
+    }
+
+    &-value {
+        font-size: 18px;
+        font-weight: 700;
+        color: @hb-stat-value;
+    }
+
+    &-label {
+        font-size: 11px;
+        color: @hb-text-muted;
+        text-transform: uppercase;
+    }
+
+    &-sectionLabel {
+        font-size: 11px;
+        font-weight: 600;
+        color: @hb-text-muted;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin: 8px 0 4px;
+    }
+
+    &-divider {
+        height: 1px;
+        background: linear-gradient(to right, transparent, @hb-divider, transparent);
+        margin: 10px 40px;
+    }
+}
+
+// ========================================
+// Custom Links
+// ========================================
+
+.CustomLinks {
+    display: flex;
+    justify-content: center;
+    gap: 25px;
+    flex-wrap: wrap;
+    padding: 5px 0;
+
+    &-link {
+        font-size: 15px;
+        text-decoration: none;
+        transition: all 0.2s ease;
+
+        &:hover {
+            text-decoration: underline;
+            filter: brightness(1.2);
+        }
+    }
+}
+
+// ========================================
+// Advanced Filters
+// ========================================
+
+.AdvancedFilters {
+    background: @hb-filter-bg;
+    border: 1px solid @hb-border;
+    border-top: none;
+    padding: 12px 15px;
+
+    &-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+
+        & + & {
+            margin-top: 10px;
+        }
+    }
+
+    &-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex: 1;
+        min-width: 150px;
+
+        label {
+            font-size: 11px;
+            font-weight: 600;
+            color: @hb-text-muted;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .FormControl,
+        select {
+            background: @hb-input-bg;
+            border: 1px solid @hb-input-border;
+            color: @hb-text;
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 3px;
+            height: auto;
+            min-height: 32px;
+            transition: border-color 0.2s ease;
+
+            &:focus {
+                border-color: @hb-accent;
+                outline: none;
+                box-shadow: 0 0 0 2px @hb-accent-shadow;
+            }
+
+            &::placeholder {
+                color: @hb-placeholder;
+            }
+        }
+
+        .Select {
+            .Select-input {
+                background: @hb-input-bg;
+                border: 1px solid @hb-input-border;
+                color: @hb-text;
+                font-size: 12px;
+                border-radius: 3px;
+                min-height: 32px;
+            }
+        }
+
+        &--right {
+            margin-left: auto;
+            flex: none;
+            min-width: 120px;
+        }
+    }
+
+    // Input wrapper for clear-X icon button
+    &-inputWrap {
+        position: relative;
+        width: 100%;
+
+        .AdvancedFilters-input {
+            width: 100%;
+            padding-right: 30px;
+
+            &.has-value {
+                padding-right: 32px;
+            }
+        }
+    }
+
+    // Red X glow clear button inside the text field
+    &-clear {
+        position: absolute;
+        top: 50%;
+        right: 6px;
+        transform: translateY(-50%);
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: @hb-accent;
+        cursor: pointer;
+        border-radius: 50%;
+        font-size: 11px;
+        line-height: 1;
+        text-shadow: 0 0 4px rgba(231, 76, 60, 0.35);
+        transition: color 0.15s ease, text-shadow 0.15s ease,
+                    background 0.15s ease, transform 0.05s ease;
+
+        i {
+            pointer-events: none;
+        }
+
+        &:hover {
+            color: @hb-accent-hover;
+            text-shadow:
+                0 0 6px rgba(231, 76, 60, 0.85),
+                0 0 12px rgba(231, 76, 60, 0.55),
+                0 0 20px rgba(231, 76, 60, 0.35);
+            background: rgba(231, 76, 60, 0.12);
+        }
+
+        &:active {
+            transform: translateY(-50%) scale(0.9);
+            background: rgba(231, 76, 60, 0.20);
+            text-shadow:
+                0 0 8px rgba(231, 76, 60, 1),
+                0 0 16px rgba(231, 76, 60, 0.75),
+                0 0 26px rgba(231, 76, 60, 0.45);
+        }
+
+        &:focus {
+            outline: none;
+        }
+    }
+}
+
+// ========================================
+// Captcha Modal
+// ========================================
+
+.HomepageBlocks-CaptchaModal {
+    .Modal-dialog {
+        max-width: 420px;
+        margin: 0 auto;
+    }
+
+    &-body {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 24px;
+        text-align: center;
+    }
+
+    &-description {
+        font-size: 14px;
+        color: @hb-text;
+        line-height: 1.5;
+        margin: 0;
+    }
+
+    &-widget {
+        display: flex;
+        justify-content: center;
+        min-height: 78px;
+    }
+
+    &-status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 13px;
+        color: @hb-text-muted;
+
+        .LoadingIndicator {
+            margin: 0;
+        }
+    }
+
+    &-error {
+        font-size: 13px;
+        color: @hb-accent;
+        padding: 4px 0;
+    }
+
+    &-actions {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+}
+
+// ========================================
+// Dark Theme Overrides
+// ========================================
+
+body.HomepageBlocks--dark {
+    .HomepageSection-header {
+        background: #16213e;
+        border-bottom-color: #0f3460;
+
+        &:hover {
+            background: #1a2948;
+        }
+    }
+
+    .HomepageSection-title {
+        color: #e0e0e0;
+    }
+
+    .HomepageSection-toggle {
+        color: #4a9eff;
+    }
+
+    .HomepageSection-body {
+        background: rgba(26, 26, 46, 0.95);
+        border-color: #0f3460;
+    }
+
+    .HomepageMainBlock-divider {
+        background: linear-gradient(to right, transparent, #0f3460, transparent);
+    }
+
+    .RandomMovieButtons-btn {
+        background: #16213e !important;
+        color: #e0e0e0 !important;
+        border-color: #0f3460 !important;
+
+        &:hover {
+            background: #1d2f50 !important;
+            color: #ffffff !important;
+        }
+    }
+
+    .TrackerInfo-message {
+        color: #e0e0e0;
+    }
+
+    .TrackerInfo-subMessage {
+        color: #8892a0;
+    }
+
+    .TrackerInfo-url {
+        color: #7eb8da;
+    }
+
+    .TrackerInfo-copyBtn {
+        background: #16213e !important;
+        color: #e0e0e0 !important;
+        border-color: #0f3460 !important;
+    }
+
+    .TrackerStats-title {
+        color: #e0e0e0;
+    }
+
+    .TrackerStats-loading {
+        color: #8892a0;
+    }
+
+    .TrackerStats-value {
+        color: #ffffff;
+    }
+
+    .TrackerStats-label,
+    .TrackerStats-sectionLabel {
+        color: #8892a0;
+    }
+
+    .TrackerStats-divider {
+        background: linear-gradient(to right, transparent, #0f3460, transparent);
+    }
+
+    .AdvancedFilters {
+        background: rgba(26, 26, 46, 0.90);
+        border-color: #0f3460;
+    }
+
+    .AdvancedFilters-field {
+        label {
+            color: #8892a0;
+        }
+
+        .FormControl,
+        select {
+            background: #1a1a2e;
+            border-color: #2a3a5e;
+            color: #e0e0e0;
+
+            &::placeholder {
+                color: rgba(136, 146, 160, 0.6);
+            }
+        }
+
+        .Select .Select-input {
+            background: #1a1a2e;
+            border-color: #2a3a5e;
+            color: #e0e0e0;
+        }
+    }
+
+    .AdvancedFilters-clear {
+        color: #ff6b6b;
+        text-shadow: 0 0 6px rgba(255, 107, 107, 0.45);
+
+        &:hover {
+            color: #ff4949;
+            text-shadow:
+                0 0 8px rgba(255, 107, 107, 0.95),
+                0 0 16px rgba(255, 107, 107, 0.65),
+                0 0 24px rgba(255, 107, 107, 0.35);
+            background: rgba(255, 107, 107, 0.18);
+        }
+
+        &:active {
+            background: rgba(255, 107, 107, 0.28);
+        }
+    }
+
+    .HomepageBlocks-CaptchaModal {
+        &-description {
+            color: #e0e0e0;
+        }
+
+        &-status {
+            color: #8892a0;
+        }
+
+        &-error {
+            color: #ff6b6b;
+        }
+    }
+}
+
+// ========================================
+// Responsive
+// ========================================
+
+@media (max-width: 768px) {
+    .RandomMovieButtons {
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+
+        &-btn {
+            width: 100%;
+            max-width: 280px;
+        }
+    }
+
+    .TrackerStats-grid {
+        gap: 15px;
+    }
+
+    .TrackerStats-item {
+        min-width: 70px;
+    }
+
+    .AdvancedFilters-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .AdvancedFilters-field {
+        min-width: 100%;
+
+        &--right {
+            margin-left: 0;
+            min-width: 100%;
+        }
+    }
+}
+
+// ========================================
+// Override default Flarum styles when blocks active
+// ========================================
+
+.IndexPage {
+    .Hero {
+        &:empty {
+            display: none;
+        }
+    }
+}
