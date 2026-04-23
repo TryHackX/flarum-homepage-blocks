@@ -1,10 +1,38 @@
 {
     "name": "tryhackx/flarum-homepage-blocks",
     "description": "Customizable homepage blocks for TryHackX - random movies, tracker stats, advanced filters",
-    "version": "1.0.1",
+    "keywords": [
+        "flarum",
+        "flarum-extension",
+        "tracker",
+        "statistics",
+        "opentracker",
+        "recaptcha",
+        "antispam",
+        "validation",
+        "title-length",
+        "content-length",
+        "search",
+        "filtering",
+        "sorting",
+        "widgets",
+        "homepage",
+        "blocks"
+    ],
     "type": "flarum-extension",
     "license": "MIT",
+    "authors": [
+        {
+            "name": "TryHackX",
+            "email": "contact@tryhackx.org"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/TryHackX/flarum-homepage-blocks/issues",
+        "source": "https://github.com/TryHackX/flarum-homepage-blocks"
+    },
     "require": {
+        "php": "^8.2",
         "flarum/core": "^1.0.0",
         "flarum/tags": "*"
     },
@@ -21,11 +49,14 @@
     "extra": {
         "flarum-extension": {
             "title": "TryHackX Homepage Blocks",
+            "category": "feature",
             "icon": {
                 "name": "fas fa-home",
-                "backgroundColor": "#1a1a2e",
-                "color": "#e74c3c"
+                "color": "#e74c3c",
+                "backgroundColor": "#1a1a2e"
             }
         }
-    }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }
