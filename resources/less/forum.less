@@ -681,3 +681,82 @@ body.HomepageBlocks--dark {
         }
     }
 }
+
+// ========================================
+// Mobile discussion list: right-column restack for non-thumb cases
+// ========================================
+// Fallback that applies whenever homepage-blocks is loaded (typically
+// always in production). When thumb-sliders is off, default Flarum on
+// mobile shows: tag inline in the main flow, count as a wide pill at
+// top:12 right:12, views as a pill at top:35 right:58 (FoF default).
+// We restack everything into a single right column with consistent
+// right alignment matching the order used in thumbs mode:
+//   tag (row 1) → stars (row 2, only if topic-rating loaded)
+//   → count (row 2 or 3) → views (row 3 or 4)
+//
+// Rows are 20px apart, anchored at top:14 from content. Items need
+// extra min-height since the natural height (~62px) is too short.
+@media (max-width: 767.98px) {
+    .DiscussionListItem-content:not(.has-ThumbSlider) {
+        // Tag at row 1 (always, when present)
+        .DiscussionListItem-info > .item-tags {
+            position: absolute;
+            right: 12px;
+            top: 14px;
+            margin: 0;
+            z-index: 1;
+        }
+
+        // Default Flarum mobile centers the count inside a 40px-wide
+        // stats column (align-items:center). That puts count's right
+        // edge 8px LEFT of where views lands (views uses right:12 of
+        // content directly). Shrink stats and align right so count
+        // and views right-edges match.
+        .DiscussionListItem-stats {
+            top: 34px !important;
+            right: 12px !important;
+            width: auto !important;
+            align-items: flex-end !important;
+        }
+
+        .DiscussionListItem-count {
+            background: transparent !important;
+            color: var(--muted-color);
+            padding: 0;
+            border-radius: 0;
+            font-size: 11px;
+            gap: 4px;
+            width: auto;
+
+            .icon {
+                display: inline-block !important;
+                width: 14px;
+                font-size: 11px;
+                text-align: center;
+                margin: 0;
+            }
+        }
+
+        // With views (no rating): tag(14), count(34), views(54)
+        &:has(.item-discussion-views):not(:has(.item-rating)) {
+            min-height: 80px;
+
+            .item-discussion-views {
+                top: 54px !important;
+                right: 12px !important;
+                bottom: auto !important;
+                background: transparent !important;
+                padding: 0 !important;
+                border-radius: 0 !important;
+                margin: 0 !important;
+                font-size: 11px !important;
+                width: auto !important;
+
+                .icon {
+                    width: 14px !important;
+                    font-size: 11px !important;
+                }
+            }
+        }
+    }
+}

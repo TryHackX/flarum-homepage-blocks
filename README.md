@@ -1,14 +1,39 @@
 # TryHackX Homepage Blocks
 
-A Flarum extension that adds powerful customizable homepage blocks: random discussion buttons, tracker information panels, dual statistics (internal database + external OpenTracker), advanced discussion filters, custom links, content validation overrides, and reCAPTCHA-protected stats API.
+A Flarum extension that adds powerful customisable homepage blocks:
+random-discussion buttons, tracker information panels, dual statistics
+(internal database + external OpenTracker), advanced discussion filters,
+custom links, content-validation overrides, and a reCAPTCHA-protected
+stats API.
 
-> **Latest (v2.0.1):** Added Section 1 and Section 2 enable/disable toggles. Removed "General" section header from settings page. Moved inline styles to CSS classes. Support button moved to top of admin page with CSS improvements.
+> Designed to plug cleanly into a tracker-style Flarum forum. Works hand
+> in hand with the rest of the TryHackX extension family —
+> [`tryhackx/flarum-topic-rating`](https://github.com/TryHackX/flarum-topic-rating)
+> unlocks rating filters and sorts, [`tryhackx/flarum-magnet-link`](https://github.com/TryHackX/flarum-magnet-link)
+> unlocks magnet click stats and sort, [`fof/discussion-views`](https://github.com/FriendsOfFlarum/discussion-views)
+> unlocks view counters / view-based sort.
+
+> **Note:** Recent updates target the **2.x** line only. The **1.x** branch
+> (Flarum 1.8+) is **no longer actively developed** — it stays available
+> for legacy installs but won't receive new features.
 
 ## Screenshots
 
-![Admin panel with page management, BBCode editor with toolbar, and live preview](assets/preview.gif)
+![Mobile view of the discussion list across multiple TryHackX layout combinations](assets/ALL_MOBILE.png)
 
-*Admin panel with page management, and live preview.*
+*Mobile view — discussion list rendered with different combinations of TryHackX extensions (thumbnails + ratings + views, thumbnails + views, thumbnails only, ratings only, views only, vanilla Flarum).*
+
+![TryHackX Homepage Blocks admin settings — sections, random buttons, tracker info, statistics, custom links, content limits and reCAPTCHA](assets/TryHackX_Homepage_Blocks.png)
+
+*TryHackX Homepage Blocks admin panel — section toggles, theme mode, custom filter labels, random-button JSON, tracker info / announce URLs, internal & external (OpenTracker) statistics, custom links JSON, content title / length overrides, reCAPTCHA gating and rate-limit settings.*
+
+![Desktop discussion list with the full TryHackX stack — thumbnail sliders, star ratings and the magnet button](assets/ALL_VIA_MAGNETS.png)
+
+*Desktop discussion list with the full TryHackX stack — thumbnail sliders on the left, star ratings on the right, magnet button next to each topic.*
+
+![Desktop discussion list — magnet tooltip mid-load on a topic](assets/ALL_VIA_MAGNETS_v2.png)
+
+*Desktop discussion list — hover state showing the magnet tooltip loading inline (powered by `tryhackx/flarum-magnet-link`).*
 
 ## Support Development
 
@@ -22,45 +47,65 @@ You can also find the donation option in the extension's admin settings panel.
 
 ## Features
 
-- **Random discussion buttons** - Configurable buttons that fetch a random discussion from a specific tag (perfect for "Random HD movie", "Random TV series", etc.). Fully customizable via JSON.
-- **Tracker info panel** - Display BitTorrent tracker announce URLs with copy-to-clipboard support, custom message and sub-message.
-- **Dual statistics system** - Show both internal forum statistics (from the database) and external OpenTracker statistics side by side:
-  - **Internal stats** - Torrents, users, magnets, downloads, views, average rating (pulled directly from the forum database)
-  - **External stats (OpenTracker)** - Seeds, peers, completed downloads, uptime. Two modes:
-    - **Native** - Direct connection to OpenTracker XML endpoint (`/stats?mode=everything`)
-    - **Proxy** - JSON proxy URL for environments where direct access is not possible
-  - Configurable refresh interval (1-300 seconds)
-- **Custom links bar** - Configurable color-coded link buttons defined via JSON (label, URL, color, external flag).
-- **Advanced discussion filters** - Powerful filter bar for the discussion list with 7 filter types:
+- **Random discussion buttons** — JSON-configurable buttons that pick a
+  random discussion from a specific tag ("Random HD movie", "Random TV
+  series", …).
+- **Tracker info panel** — display BitTorrent tracker announce URLs with
+  copy-to-clipboard support, a custom heading and sub-heading.
+- **Dual statistics system** — show internal forum stats (from the
+  database) and external OpenTracker stats side by side:
+  - **Internal stats** — torrents, users, magnets, downloads, views,
+    average rating (pulled from the forum database).
+  - **External stats (OpenTracker)** — seeds, peers, completed
+    downloads, uptime, in two modes:
+    - **Native** — direct connection to the OpenTracker XML endpoint
+      (`/stats?mode=everything`).
+    - **Proxy** — JSON proxy URL for environments where direct access
+      isn't possible.
+  - Configurable refresh interval (1–300 s).
+- **Custom links bar** — JSON-configurable colour-coded link buttons
+  (`label`, `url`, `color`, `external`).
+- **Advanced discussion filters** — filter bar for the discussion list
+  with 7 filter types:
   - Title search
   - User search
-  - Rating interval (requires `tryhackx/flarum-topic-rating`)
-  - Date interval (Today, 1 day, 1 week, 2 weeks, 1 month, 3/6 months, 1 year)
+  - Rating interval *(requires `tryhackx/flarum-topic-rating`)*
+  - Date interval (Today, 1 day, 1 week, 2 weeks, 1 month, 3 / 6
+    months, 1 year)
   - Category (tag) selection
-  - Sort by (Steam DB rating, average rating, rating count, recently rated, creation date, views, magnet clicks)
-  - Sort direction (ascending/descending)
-- **Content validation overrides** - Override Flarum's built-in title and content length limits without touching the core:
-  - Title length: 1-200 characters (varchar(200) column max)
-  - Content length: 0-16,000,000 characters (mediumtext column max)
-  - Toggle each independently
-- **reCAPTCHA protection** - Optional reCAPTCHA v2/v3 protection for the stats API endpoint.
-- **Collapsible sections** - Section 1 (random buttons + stats) can be collapsed by default to save space.
-- **Hide hero banner** - Optional toggle to hide Flarum's default hero banner.
-- **Tag filtering** - Show only tags that have discussions, optionally with discussion counts next to tag names.
-- **Polish & English locales** - Fully translated interface.
+  - Sort by (Steam-DB-style rating, average rating, rating count,
+    recently rated, creation date, views, magnet clicks)
+  - Sort direction (ascending / descending)
+- **Content-validation overrides** — override Flarum's built-in title
+  and content length limits without patching core:
+  - Title length: 1–200 characters (`varchar(200)` column max).
+  - Content length: 0–16,000,000 characters (`mediumtext` column max).
+  - Each toggle is independent.
+- **reCAPTCHA protection** — optional reCAPTCHA v2 / v3 protection for
+  the stats API endpoint.
+- **Collapsible sections** — Section 1 (random buttons + stats) can be
+  collapsed by default to save space.
+- **Hide hero banner** — optional toggle to hide Flarum's default hero
+  banner.
+- **Tag filtering** — show only tags that actually have discussions,
+  optionally with discussion counts next to tag names.
+- **Polish & English locales** — fully translated UI.
 
 ## Requirements
 
 - Flarum `^2.0.0-beta.7`
 - `flarum/tags` (required)
 
-### Suggested extensions
+### Recommended companions
 
-These extensions enhance the functionality but are not required:
+These aren't strictly required but unlock additional functionality:
 
-- [**fof/discussion-views**](https://github.com/FriendsOfFlarum/discussion-views) - Enables view count statistics and view-based sorting
-- [**tryhackx/flarum-topic-rating**](https://github.com/TryHackX/flarum-topic-rating) - Enables rating-based filtering and sorting (Steam DB ratings, average rating, etc.)
-- [**tryhackx/flarum-magnet-link**](https://github.com/TryHackX/flarum-magnet-link) - Enables magnet click statistics and magnet-based sorting
+- [**fof/discussion-views**](https://github.com/FriendsOfFlarum/discussion-views)
+  — view count statistics and view-based sorting.
+- [**tryhackx/flarum-topic-rating**](https://github.com/TryHackX/flarum-topic-rating)
+  — rating-based filtering and sorting (Steam-DB-style, average rating, etc.).
+- [**tryhackx/flarum-magnet-link**](https://github.com/TryHackX/flarum-magnet-link)
+  — magnet click statistics and magnet-click-based sort.
 
 ## Installation
 
@@ -69,7 +114,7 @@ composer require tryhackx/flarum-homepage-blocks
 php flarum cache:clear
 ```
 
-## Update
+## Updating
 
 ```bash
 composer update tryhackx/flarum-homepage-blocks
@@ -83,14 +128,14 @@ php flarum cache:clear
 3. Click the extension to access the configuration sections:
 
 | Section | Description |
-|---|---|
-| **General** | Section titles, default collapsed state, hero banner toggle, tag display options |
-| **Random Movies** | JSON configuration for random discussion buttons |
-| **Tracker Info** | Tracker message, sub-message, and announce URLs |
-| **Tracker Statistics** | Toggle internal stats, configure external OpenTracker source (native or proxy mode), refresh interval |
-| **Custom Links** | JSON configuration for custom link buttons |
-| **Content Settings** | Override title and content length limits |
-| **Security (reCAPTCHA)** | Optional reCAPTCHA v2/v3 protection for the stats API |
+| --- | --- |
+| **General** | Section titles, default-collapsed state, hero banner toggle, tag display options. |
+| **Random Movies** | JSON configuration for random-discussion buttons. |
+| **Tracker Info** | Tracker heading, sub-heading, announce URLs. |
+| **Tracker Statistics** | Toggle internal stats, configure external OpenTracker source (native or proxy mode), refresh interval. |
+| **Custom Links** | JSON configuration for custom link buttons. |
+| **Content Settings** | Override title and content length limits. |
+| **Security (reCAPTCHA)** | Optional reCAPTCHA v2 / v3 protection for the stats API. |
 
 ### Random buttons format
 
@@ -107,9 +152,17 @@ php flarum cache:clear
 ```json
 [
   {"label": "Template Generator", "url": "/generator", "color": "#e74c3c"},
-  {"label": "Template Merger", "url": "/merger", "color": "#e74c3c"}
+  {"label": "Template Merger",    "url": "/merger",    "color": "#e74c3c"}
 ]
 ```
+
+## API endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/tryhackx/homepage/random` | Pick a random discussion from a tag. |
+| `GET` | `/api/tryhackx/homepage/stats` | Forum / tracker statistics. Optionally reCAPTCHA-gated. |
+| `GET` | `/api/tryhackx/homepage/points/check` | User points / rating helper used by the filter bar. |
 
 ## Links
 

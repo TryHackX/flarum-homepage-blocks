@@ -19,34 +19,43 @@ use TryHackX\HomepageBlocks\Search\UserFilter;
  * Helper: replace min/max validation rules on a field using Reflection.
  * Flarum's Schema fields accumulate rules via rule(), and there's no public way
  * to remove existing rules. We use Reflection to filter and replace them safely.
+ *
+ * Wrapped in `function_exists` because Flarum can load this extend.php twice
+ * in the same request (notably when the extension is disabled / enabled from
+ * the admin, which re-evaluates the extender list). Without the guard PHP
+ * would fatal with "Cannot redeclare function replaceMinMax()" and the admin
+ * UI would show a generic "Oops" alert — even though the disable itself had
+ * already succeeded server-side.
  */
-function replaceMinMax($field, ?int $min, ?int $max): mixed
-{
-    try {
-        // Access the protected $rules array
-        $ref = new ReflectionProperty($field, 'rules');
-        $rules = $ref->getValue($field);
+if (!function_exists('replaceMinMax')) {
+    function replaceMinMax($field, ?int $min, ?int $max): mixed
+    {
+        try {
+            // Access the protected $rules array
+            $ref = new ReflectionProperty($field, 'rules');
+            $rules = $ref->getValue($field);
 
-        // Filter out existing min: and max: rules
-        $rules = array_filter($rules, function ($rule) {
-            $r = $rule['rule'] ?? '';
-            return !str_starts_with($r, 'min:') && !str_starts_with($r, 'max:');
-        });
+            // Filter out existing min: and max: rules
+            $rules = array_filter($rules, function ($rule) {
+                $r = $rule['rule'] ?? '';
+                return !str_starts_with($r, 'min:') && !str_starts_with($r, 'max:');
+            });
 
-        $ref->setValue($field, array_values($rules));
+            $ref->setValue($field, array_values($rules));
 
-        // Add new rules
-        if ($min !== null) {
-            $field->minLength($min);
+            // Add new rules
+            if ($min !== null) {
+                $field->minLength($min);
+            }
+            if ($max !== null) {
+                $field->maxLength($max);
+            }
+        } catch (\Throwable $e) {
+            // If reflection fails, don't break anything — just return the original field
         }
-        if ($max !== null) {
-            $field->maxLength($max);
-        }
-    } catch (\Throwable $e) {
-        // If reflection fails, don't break anything — just return the original field
+
+        return $field;
     }
-
-    return $field;
 }
 
 return [
