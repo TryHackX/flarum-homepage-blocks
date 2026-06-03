@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-06-01
+
+### Fixed
+- **The three magnet-click sort options now actually work.** *Magnet clicks
+  (total)*, *Magnet clicks (top magnet)* and *Recently clicked* (sort
+  indices 6/7/8) previously had no backend and silently fell back to
+  *Creation date*. They are now wired to real sort fields provided by
+  `tryhackx/flarum-magnet-link` **2.1.0+** (topic-scoped — counting clicks
+  from each discussion's own posts):
+  - the dropdown `sortMap` points at the new aliases (`most_magnet_clicks`,
+    `most_magnet_clicks_single`, `recently_magnet_clicked`, …);
+  - `DiscussionListState.sortMap` resolves those aliases to the API sort
+    fields (`-magnetClicksTotal`, `-magnetClicksMax`, `-magnetLastClicked`).
+
+### Changed
+- **Magnet-click sort options are gated on `tryhackx/flarum-magnet-link`
+  being enabled.** Detected via its `magnetClickTracking` forum attribute.
+  When the extension is off, the three options are hidden and their sort
+  aliases are not registered, so a stale URL degrades to the default sort
+  instead of erroring — no more dead/misleading options.
+- Locale labels clarified: *Magnet clicks (total)* / *Magnet clicks (top
+  magnet)* / *Recently clicked* (en) and the Polish equivalents.
+
+### Fixed (docs)
+- README integration lines restored and corrected: `tryhackx/flarum-magnet-link`
+  now unlocks magnet click **stats and sorts** (the sort works as of
+  magnet-link 2.1.0).
+
+> Frontend-only here (no migrations in homepage-blocks). The actual sorting
+> is implemented in `tryhackx/flarum-magnet-link` 2.1.0 — update both
+> together to get the working sorts.
+
 ## [2.0.4] - 2026-05-30
 
 ### Changed

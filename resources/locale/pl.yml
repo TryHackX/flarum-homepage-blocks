@@ -136,8 +136,8 @@ tryhackx-homepage-blocks:
     sort_recently_rated: "Ostatnio ocenione"
     sort_created: "Data utworzenia"
     sort_views: "Wyświetlenia"
-    sort_magnet_sum: "Kliki magnet suma"
-    sort_magnet_max: "Kliki magnet max"
+    sort_magnet_sum: "Kliki magnet (suma)"
+    sort_magnet_max: "Kliki magnet (najlepszy magnet)"
     sort_recently_clicked: "Ostatnio kliknięty"
 
     sort_desc: "Malejąco"

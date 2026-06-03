@@ -10,7 +10,7 @@ stats API.
 > in hand with the rest of the TryHackX extension family —
 > [`tryhackx/flarum-topic-rating`](https://github.com/TryHackX/flarum-topic-rating)
 > unlocks rating filters and sorts, [`tryhackx/flarum-magnet-link`](https://github.com/TryHackX/flarum-magnet-link)
-> unlocks magnet click stats and sort, [`fof/discussion-views`](https://github.com/FriendsOfFlarum/discussion-views)
+> unlocks magnet click stats and sorts, [`fof/discussion-views`](https://github.com/FriendsOfFlarum/discussion-views)
 > unlocks view counters / view-based sort.
 
 > **Note:** Recent updates target the **2.x** line only. The **1.x** branch
@@ -74,7 +74,9 @@ You can also find the donation option in the extension's admin settings panel.
     months, 1 year)
   - Category (tag) selection
   - Sort by (Steam-DB-style rating, average rating, rating count,
-    recently rated, creation date, views, magnet clicks)
+    recently rated, creation date, views, and — with
+    `tryhackx/flarum-magnet-link` — magnet clicks total / top magnet /
+    recently clicked)
   - Sort direction (ascending / descending)
 - **Content-validation overrides** — override Flarum's built-in title
   and content length limits without patching core:
@@ -105,7 +107,8 @@ These aren't strictly required but unlock additional functionality:
 - [**tryhackx/flarum-topic-rating**](https://github.com/TryHackX/flarum-topic-rating)
   — rating-based filtering and sorting (Steam-DB-style, average rating, etc.).
 - [**tryhackx/flarum-magnet-link**](https://github.com/TryHackX/flarum-magnet-link)
-  — magnet click statistics and magnet-click-based sort.
+  — magnet click statistics (tracker stats block) and topic-scoped
+  magnet-click sorts (clicks total / top magnet / recently clicked).
 
 ## Installation
 

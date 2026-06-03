@@ -72,6 +72,19 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
         map.least_rating_count = 'rating_count';
         map.recently_rated = '-last_rated_at';
         map.oldest_rated = 'last_rated_at';
+
+        // Magnet-click sorts — resolve the friendly aliases to the API sort
+        // fields registered by tryhackx/flarum-magnet-link. Gated on that
+        // extension being enabled (same signal as the dropdown options) so a
+        // stale URL degrades to the default sort instead of an API error.
+        if (typeof app.forum.attribute('magnetClickTracking') !== 'undefined') {
+            map.most_magnet_clicks = '-magnetClicksTotal';
+            map.least_magnet_clicks = 'magnetClicksTotal';
+            map.most_magnet_clicks_single = '-magnetClicksMax';
+            map.least_magnet_clicks_single = 'magnetClicksMax';
+            map.recently_magnet_clicked = '-magnetLastClicked';
+            map.oldest_magnet_clicked = 'magnetLastClicked';
+        }
     });
 
     // Initialize global filter state with defaults matching option keys in AdvancedFilters

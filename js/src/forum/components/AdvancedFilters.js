@@ -87,10 +87,17 @@ export default class AdvancedFilters extends Component {
             '3': this.transStr('tryhackx-homepage-blocks.forum.sort_recently_rated'),
             '4': this.transStr('tryhackx-homepage-blocks.forum.sort_created'),
             '5': this.transStr('tryhackx-homepage-blocks.forum.sort_views'),
-            '6': this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_sum'),
-            '7': this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_max'),
-            '8': this.transStr('tryhackx-homepage-blocks.forum.sort_recently_clicked'),
         };
+
+        // Magnet-click sorts (6/7/8) are provided by tryhackx/flarum-magnet-link.
+        // Only offer them when that extension is enabled — its settings are
+        // serialized to the forum, so `magnetClickTracking` is defined iff it is
+        // active. Otherwise these would be dead options (no backend sort alias).
+        if (typeof app.forum.attribute('magnetClickTracking') !== 'undefined') {
+            sortOptions['6'] = this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_sum');
+            sortOptions['7'] = this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_max');
+            sortOptions['8'] = this.transStr('tryhackx-homepage-blocks.forum.sort_recently_clicked');
+        }
 
         const dateIntervalOptions = {
             '0': this.transStr('tryhackx-homepage-blocks.forum.interval_all'),
@@ -370,9 +377,12 @@ export default class AdvancedFilters extends Component {
             '3': { desc: 'recently_rated',     asc: 'oldest_rated' },         // Recently rated
             '4': { desc: 'newest',             asc: 'oldest' },               // Creation date
             '5': { desc: 'most_viewed',        asc: 'least_viewed' },         // Views (fof/discussion-views)
-            '6': { desc: 'newest',             asc: 'oldest' },               // Magnet sum (TODO)
-            '7': { desc: 'newest',             asc: 'oldest' },               // Magnet max (TODO)
-            '8': { desc: 'newest',             asc: 'oldest' },               // Recently clicked (TODO)
+            // Magnet-click sorts — aliases registered by tryhackx/flarum-magnet-link
+            // (Sort\MagnetClicksSort) and ordered via its search mutator. Options
+            // 6/7/8 are only shown when magnet-link is enabled (see sortOptions).
+            '6': { desc: 'most_magnet_clicks',        asc: 'least_magnet_clicks' },        // Magnet clicks total (sum)
+            '7': { desc: 'most_magnet_clicks_single', asc: 'least_magnet_clicks_single' }, // Magnet clicks max (best single magnet)
+            '8': { desc: 'recently_magnet_clicked',   asc: 'oldest_magnet_clicked' },      // Last clicked (time)
         };
 
         const sortEntry = sortMap[this.filters.sortBy] || sortMap['4'];
