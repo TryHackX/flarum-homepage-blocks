@@ -63,6 +63,21 @@ class PointsManager
     }
 
     /**
+     * Co zrobić z budżetem, GDY blokada IP się skończy:
+     *   'full'  — przywróć pełny budżet startowy (domyślnie, łagodniej),
+     *   'empty' — zostaw 0 i odnawiaj stopniowo od zera (surowiej).
+     *
+     * UWAGA: w OBU trybach podczas trwania blokady odnawianie jest zamrożone —
+     * blokada to stały „cooldown" o długości block_seconds, nie zdejmowany wcześniej.
+     */
+    public function getBlockReset(): string
+    {
+        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_block_reset');
+        $mode = is_string($raw) ? strtolower(trim($raw)) : '';
+        return $mode === 'empty' ? 'empty' : 'full';
+    }
+
+    /**
      * Koszt akcji dla danego zakresu (z dopłatą dla gości).
      */
     public function getCost(string $scope, bool $isGuest): float
@@ -275,8 +290,10 @@ class PointsManager
         $blockedUntil = (int) ($state['blocked_until'] ?? 0);
 
         if ($blockedUntil > 0 && $now >= $blockedUntil) {
-            // Blokada minęła — czysty start.
-            return ['balance' => $this->getStart(), 'ts' => $now, 'blocked_until' => 0];
+            // Blokada minęła. Budżet zależnie od ustawienia: pełny (łagodniej)
+            // albo pusty + odnawianie od zera (surowiej).
+            $balance = $this->getBlockReset() === 'empty' ? 0.0 : $this->getStart();
+            return ['balance' => $balance, 'ts' => $now, 'blocked_until' => 0];
         }
 
         if ($blockedUntil > $now) {

@@ -496,6 +496,23 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                 m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_seconds_help')),
             ]);
 
+            // Co zrobić z budżetem, gdy blokada się skończy: pełny albo pusty.
+            const blockResetRaw = this.setting(S + '.recaptcha_points_block_reset')();
+            const blockReset = blockResetRaw === 'empty' ? 'empty' : 'full';
+            const blockResetField = m('div', { className: 'Form-group', style: fieldStyle }, [
+                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset')),
+                m('select', {
+                    className: 'FormControl',
+                    disabled: !enabled || !blockMode,
+                    value: blockReset,
+                    onchange: (e) => this.setting(S + '.recaptcha_points_block_reset')(e.target.value),
+                }, [
+                    m('option', { value: 'full' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset_full')),
+                    m('option', { value: 'empty' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset_empty')),
+                ]),
+                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset_help')),
+            ]);
+
             return m('div', { className: 'Form-group HomepageBlocks-pointsGroup', style: grp }, [
                 m('div', { style: rowStyle }, [
                     numField.call(this, 'recaptcha_points_start', 'recaptcha_points_start', 'recaptcha_points_start_help', '10', 0.1, 0, 10000),
@@ -508,6 +525,7 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                 m('div', { style: { ...rowStyle, marginTop: '12px' } }, [
                     enforcementField,
                     blockSecondsField,
+                    blockResetField,
                 ]),
                 m('h4', { style: { marginTop: '12px', marginBottom: '6px' } }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.points_costs_header')),
                 m('div', { style: rowStyle }, [

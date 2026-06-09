@@ -27,6 +27,10 @@ that already use reCAPTCHA + points keep their current behaviour (the new
   for the block duration instead of hammering the server.
 - The points budget refills continuously (unchanged), so casual, regular use
   stays smooth while bursts are throttled.
+- **"When the block ends"** setting: choose whether the visitor's budget comes
+  back **full** (forgiving, default) or **empty and refilling from zero**
+  (stricter). During a block points never refill and the block is never lifted
+  early — it always lasts its full configured duration.
 
 ### Security
 - **IP rate limiting can no longer be bypassed with a spoofed header.** Per-IP
@@ -77,6 +81,12 @@ that already use reCAPTCHA + points keep their current behaviour (the new
   gambits). Interval filters now tolerate array input.
 - `composer.json`: `flarum/tags` pinned to `^2.0.0-rc.1` (was `*`);
   `minimum-stability: dev` removed.
+
+### Fixed
+- The **clear (×) button** in the advanced filters again wipes the whole field
+  with the accelerating "held-backspace" animation on a single click. It had
+  regressed to removing only one character per click (it required an actual
+  press-and-hold); clicking now runs the cascade to completion on its own.
 
 ### Removed
 - The misleading **"Steam DB Rating"** sort option (it was a duplicate of

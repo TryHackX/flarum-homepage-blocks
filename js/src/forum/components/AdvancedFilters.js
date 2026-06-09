@@ -38,7 +38,7 @@ export default class AdvancedFilters extends Component {
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
         }
-        this.stopHold();
+        this.stopClear();
     }
 
     getDebounceMs() {
@@ -191,42 +191,35 @@ export default class AdvancedFilters extends Component {
                     className: 'AdvancedFilters-clear',
                     title: this.transStr('tryhackx-homepage-blocks.forum.clear_field'),
                     'aria-label': this.transStr('tryhackx-homepage-blocks.forum.clear_field'),
-                    onmousedown: (e) => {
+                    // Klik uruchamia przyspieszane kasowanie aż do opróżnienia pola
+                    // (efekt jak przytrzymany backspace). Nie wymaga przytrzymania.
+                    onclick: (e) => {
                         e.preventDefault();
-                        this.startHold(filterKey);
+                        this.startClear(filterKey);
                     },
-                    onmouseup: () => this.stopHold(),
-                    onmouseleave: () => this.stopHold(),
-                    ontouchstart: (e) => {
-                        e.preventDefault();
-                        this.startHold(filterKey);
-                    },
-                    ontouchend: () => this.stopHold(),
-                    ontouchcancel: () => this.stopHold(),
-                    onclick: (e) => { e.preventDefault(); },
                 }, m('i', { className: 'fas fa-times' })) : null,
             ]),
         ]);
     }
 
     /**
-     * Accelerating-delete implementation. When the user presses and holds the
-     * clear button, strip characters one at a time with an increasing tempo
-     * (like holding the backspace key).
+     * Accelerating clear. One click strips characters one at a time with an
+     * increasing tempo (like holding backspace) until the field is empty —
+     * the animation runs to completion on its own, no need to hold the button.
      */
-    startHold(filterKey) {
-        this.stopHold();
+    startClear(filterKey) {
+        this.stopClear();
         this.holdActiveField = filterKey;
 
         // First tick: single character removed immediately
-        this.tickHold(filterKey, this.holdDelay);
+        this.tickClear(filterKey, this.holdDelay);
     }
 
-    tickHold(filterKey, delay) {
+    tickClear(filterKey, delay) {
         const current = this.filters[filterKey] || '';
         if (!current) {
             // Field empty — we're done
-            this.stopHold();
+            this.stopClear();
             this.applyFilters();
             return;
         }
@@ -240,11 +233,11 @@ export default class AdvancedFilters extends Component {
         const nextDelay = Math.max(this.minHoldDelay, Math.floor(delay * this.holdAcceleration));
         this.holdTimer = setTimeout(() => {
             if (this.holdActiveField !== filterKey) return;
-            this.tickHold(filterKey, nextDelay);
+            this.tickClear(filterKey, nextDelay);
         }, delay);
     }
 
-    stopHold() {
+    stopClear() {
         if (this.holdTimer) {
             clearTimeout(this.holdTimer);
             this.holdTimer = null;
