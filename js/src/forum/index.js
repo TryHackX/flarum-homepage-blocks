@@ -97,6 +97,9 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
         map.least_rating_count = 'rating_count';
         map.recently_rated = '-last_rated_at';
         map.oldest_rated = 'last_rated_at';
+        // "Steam DB" confidence-weighted rating (avg + number of ratings).
+        map.steamdb = '-steamRating';
+        map.steamdb_asc = 'steamRating';
 
         // Magnet-click sorts — resolve the friendly aliases to the API sort
         // fields registered by tryhackx/flarum-magnet-link. Gated on that

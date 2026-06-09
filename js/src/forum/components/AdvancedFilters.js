@@ -93,6 +93,7 @@ export default class AdvancedFilters extends Component {
             '4': this.transStr('tryhackx-homepage-blocks.forum.sort_created'),
         };
         if (hasRating) {
+            sortOptions['0'] = this.transStr('tryhackx-homepage-blocks.forum.sort_steamdb');
             sortOptions['1'] = this.transStr('tryhackx-homepage-blocks.forum.sort_avg_rating');
             sortOptions['2'] = this.transStr('tryhackx-homepage-blocks.forum.sort_rating_count');
             sortOptions['3'] = this.transStr('tryhackx-homepage-blocks.forum.sort_recently_rated');
@@ -383,6 +384,7 @@ export default class AdvancedFilters extends Component {
         // Sort mapping: UI index → { desc: sortKey, asc: sortKey }
         // Sort keys must match aliases registered in extend.php and DiscussionListState.sortMap()
         const sortMap = {
+            '0': { desc: 'steamdb',            asc: 'steamdb_asc' },          // Steam DB rating
             '1': { desc: 'most_rated',         asc: 'least_rated' },          // Avg rating
             '2': { desc: 'most_rating_count',  asc: 'least_rating_count' },   // Number of ratings
             '3': { desc: 'recently_rated',     asc: 'oldest_rated' },         // Recently rated

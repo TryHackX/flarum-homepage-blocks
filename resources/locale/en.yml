@@ -153,6 +153,7 @@ tryhackx-homepage-blocks:
     interval_6m: "6 Months"
     interval_1y: "1 Year"
 
+    sort_steamdb: "Steam DB Rating"
     sort_avg_rating: "Average rating"
     sort_rating_count: "Number of ratings"
     sort_recently_rated: "Recently rated"

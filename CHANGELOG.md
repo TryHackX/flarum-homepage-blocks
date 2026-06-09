@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-06-10
+
+### Added
+- **"Steam DB Rating" sort** for the discussion list — restores the option that
+  2.1.0 removed, now as a real **confidence-weighted** rating that adapts
+  SteamDB's review-score formula to topic-rating's stars:
+  `ReviewScore = rating_average / 5`, `Total = rating_count`,
+  `Rating = ReviewScore − (ReviewScore − 0.5) · (Total + 1)^(−log₁₀2)`.
+  A topic rated 5★ by 100 people outranks one rated 5★ by a single person, and
+  unrated topics sort last. Implemented as a custom `SteamRatingSort` + a search
+  mutator (the SQL uses only `POWER()`, portable to MySQL/MariaDB/PostgreSQL).
+  Shown and registered only when `tryhackx/flarum-topic-rating` is enabled.
+
+> Frontend + backend; **no migrations**. New PHP classes (`Sort\SteamRatingSort`,
+> `Search\SteamRatingSortMutator`) — run `composer update` (autoload) + `cache:clear`.
+
 ## [2.1.0] - 2026-06-09
 
 Security + reliability release. **No database migrations.** Existing installs
@@ -105,10 +121,11 @@ that already use reCAPTCHA + points keep their current behaviour (the new
 
 ### Removed
 - The misleading **"Steam DB Rating"** sort option (it was a duplicate of
-  *Average rating*).
+  *Average rating*). *(Restored as a real, confidence-weighted sort in 2.1.1.)*
 - Dead code: unused `DatabaseSearchState` imports, the unused
   `guardedAction` / `isCaptchaRequiredResponse` helpers, non-functional sort
-  aliases, and unused locale keys.
+  aliases, unused locale keys, and three unused PHP methods
+  (`PointsManager::getBalance()` / `isGuest()`, `RecaptchaGuard::check()`).
 
 ## [2.0.5] - 2026-06-01
 

@@ -76,11 +76,12 @@ You can also find the donation option in the extension's admin settings panel.
   - Date interval (Today, 1 day, 1 week, 2 weeks, 1 month, 3 / 6
     months, 1 year)
   - Category (tag) selection
-  - Sort by — creation date (always available), plus average rating,
-    rating count and recently rated *(with `tryhackx/flarum-topic-rating`)*,
-    views *(with `fof/discussion-views`)*, and magnet clicks total / top
-    magnet / recently clicked *(with `tryhackx/flarum-magnet-link`)*.
-    Options whose extension isn't installed are hidden automatically.
+  - Sort by — creation date (always available), plus a **Steam-DB-style
+    confidence rating**, average rating, rating count and recently rated
+    *(with `tryhackx/flarum-topic-rating`)*, views *(with `fof/discussion-views`)*,
+    and magnet clicks total / top magnet / recently clicked
+    *(with `tryhackx/flarum-magnet-link`)*. Options whose extension isn't
+    installed are hidden automatically.
   - Sort direction (ascending / descending)
 - **Content-validation overrides** — override Flarum's built-in title
   and content length limits without patching core:

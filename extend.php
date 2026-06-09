@@ -14,6 +14,8 @@ use TryHackX\HomepageBlocks\Search\RatingFilter;
 use TryHackX\HomepageBlocks\Search\DateIntervalFilter;
 use TryHackX\HomepageBlocks\Search\TitleFilter;
 use TryHackX\HomepageBlocks\Search\UserFilter;
+use TryHackX\HomepageBlocks\Search\SteamRatingSortMutator;
+use TryHackX\HomepageBlocks\Sort\SteamRatingSort;
 
 return [
     (new Extend\Frontend('forum'))
@@ -117,9 +119,12 @@ return [
                     SortColumn::make('rating_average'),
                     SortColumn::make('rating_count'),
                     SortColumn::make('last_rated_at'),
+                    // "Steam DB" confidence-weighted rating (avg + count).
+                    SteamRatingSort::make('steamRating'),
                 ]),
             (new Extend\SearchDriver(DatabaseSearchDriver::class))
-                ->addFilter(DiscussionSearcher::class, RatingFilter::class),
+                ->addFilter(DiscussionSearcher::class, RatingFilter::class)
+                ->addMutator(DiscussionSearcher::class, SteamRatingSortMutator::class),
             (new Extend\Settings())
                 ->serializeToForum('tryhackxHomepageHasRating', 'tryhackx-homepage-blocks.recaptcha_points_enabled', fn () => true),
         ])
