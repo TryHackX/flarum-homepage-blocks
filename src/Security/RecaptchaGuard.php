@@ -37,14 +37,6 @@ class RecaptchaGuard
     ) {}
 
     /**
-     * Pomocnik wstecznie zgodny zwracający proste bool.
-     */
-    public function check(ServerRequestInterface $request, string $scope): bool
-    {
-        return $this->verify($request, $scope)['ok'];
-    }
-
-    /**
      * Pełna weryfikacja.
      */
     public function verify(ServerRequestInterface $request, string $scope): array

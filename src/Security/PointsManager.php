@@ -3,7 +3,6 @@
 namespace TryHackX\HomepageBlocks\Security;
 
 use Flarum\Foundation\Paths;
-use Flarum\Http\RequestUtil;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TryHackX\HomepageBlocks\Concerns\ResolvesClientIp;
@@ -128,19 +127,6 @@ class PointsManager
         return $this->getClientIp($request);
     }
 
-    public function isGuest(ServerRequestInterface $request): bool
-    {
-        try {
-            $actor = RequestUtil::getActor($request);
-            if ($actor && $actor->exists && !$actor->isGuest()) {
-                return false;
-            }
-        } catch (\Throwable $e) {
-            // w razie błędu traktuj jak gościa
-        }
-        return true;
-    }
-
     /**
      * Pozostały czas blokady IP w sekundach (0 = nie zablokowany).
      * Wygasłą blokadę czyści i resetuje kubełek do pełna.
@@ -166,16 +152,6 @@ class PointsManager
         $state['blocked_until'] = time() + $seconds;
         $this->writeState($ip, $state);
         return $seconds;
-    }
-
-    /**
-     * Aktualne saldo dla IP (po naliczeniu odnowień).
-     */
-    public function getBalance(string $ip): float
-    {
-        $state = $this->normalize($this->readState($ip));
-        $this->writeState($ip, $state);
-        return (float) $state['balance'];
     }
 
     /**
