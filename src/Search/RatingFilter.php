@@ -5,6 +5,7 @@ namespace TryHackX\HomepageBlocks\Search;
 use Carbon\Carbon;
 use Flarum\Search\Filter\FilterInterface;
 use Flarum\Search\SearchState;
+use Flarum\Search\ValidateFilterTrait;
 
 /**
  * Filters discussions by the time period in which they were rated.
@@ -12,6 +13,8 @@ use Flarum\Search\SearchState;
  */
 class RatingFilter implements FilterInterface
 {
+    use ValidateFilterTrait;
+
     public function getFilterKey(): string
     {
         return 'ratingInterval';
@@ -19,7 +22,7 @@ class RatingFilter implements FilterInterface
 
     public function filter(SearchState $state, string|array $value, bool $negate): void
     {
-        $date = match ((string) $value) {
+        $date = match ($this->asString($value)) {
             'today' => Carbon::today(),
             '1d' => Carbon::now()->subDay(),
             '1w' => Carbon::now()->subWeek(),

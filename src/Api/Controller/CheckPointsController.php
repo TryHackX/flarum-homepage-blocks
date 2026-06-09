@@ -2,34 +2,33 @@
 
 namespace TryHackX\HomepageBlocks\Api\Controller;
 
-use Flarum\Foundation\Paths;
-use Flarum\Settings\SettingsRepositoryInterface;
 use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use TryHackX\HomepageBlocks\Security\PointsManager;
+use TryHackX\HomepageBlocks\Concerns\BuildsGuardResponse;
 use TryHackX\HomepageBlocks\Security\RecaptchaGuard;
 
 /**
- * Lightweight pre-flight endpoint: charge points for an action without doing
- * the actual work. Used by the frontend before triggering native Flarum
- * search / discussion list refreshes (which the extension can't directly
- * gate at the PHP layer).
+ * Lekki endpoint pre-flight: nalicza punkty za akcję bez wykonywania jej.
+ * Używany przez frontend przed natywnym wyszukiwaniem / odświeżeniem listy
+ * dyskusji (których rozszerzenie nie bramkuje po stronie PHP).
  *
  * Query: ?action=search
  *        ?action=search&recaptcha_token=...
  *
- * Response:
- *   200 { ok: true, balance: ...}
- *   403 { error: "captcha_required", balance: ... }        (needs captcha)
- *   403 { error: "reCAPTCHA verification failed" }         (classic mode, no/bad token)
+ * Odpowiedź:
+ *   200 { ok: true, balance: ... }
+ *   403 { error: "captcha_required", balance: ... }   (wymagane captcha)
+ *   429 { error: "rate_limited", retry_after: ... }   (blokada IP)
+ *   403 { error: "reCAPTCHA verification failed" }     (tryb klasyczny, zły token)
  */
 class CheckPointsController implements RequestHandlerInterface
 {
+    use BuildsGuardResponse;
+
     public function __construct(
-        protected SettingsRepositoryInterface $settings,
-        protected Paths $paths
+        protected RecaptchaGuard $guard
     ) {}
 
     public function handle(ServerRequestInterface $request): ResponseInterface
@@ -40,29 +39,17 @@ class CheckPointsController implements RequestHandlerInterface
             return new JsonResponse(['error' => 'Invalid action'], 400);
         }
 
-        $points = new PointsManager($this->settings, $this->paths);
-        $guard = new RecaptchaGuard($this->settings, $points);
+        $result = $this->guard->verify($request, $action);
 
-        $result = $guard->verify($request, $action);
-
-        if (!empty($result['ok'])) {
-            return new JsonResponse([
-                'ok' => true,
-                'balance' => $result['balance'] ?? null,
-                'cost' => $result['cost'] ?? null,
-                'refilled' => $result['refilled'] ?? false,
-            ]);
+        if ($error = $this->guardError($result)) {
+            return $error;
         }
 
-        if (!empty($result['captcha_required'])) {
-            return new JsonResponse([
-                'error' => 'captcha_required',
-                'captcha_required' => true,
-                'balance' => $result['balance'] ?? 0,
-                'cost' => $result['cost'] ?? null,
-            ], 403);
-        }
-
-        return new JsonResponse(['error' => 'reCAPTCHA verification failed'], 403);
+        return new JsonResponse([
+            'ok' => true,
+            'balance' => $result['balance'] ?? null,
+            'cost' => $result['cost'] ?? null,
+            'refilled' => $result['refilled'] ?? false,
+        ]);
     }
 }

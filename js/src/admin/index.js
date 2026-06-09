@@ -1,33 +1,27 @@
 import app from 'flarum/admin/app';
+import { extend } from 'flarum/common/extend';
+import ResetExtensionSettingsModal from 'flarum/admin/components/ResetExtensionSettingsModal';
 import SupportModal from './components/SupportModal';
 
 const S = 'tryhackx-homepage-blocks';
 
-// Add Flarum's standard `Button--inverted` to the Cancel button in core's
-// "Reset extension settings" modal so it doesn't render as a plain
-// borderless button. We use a MutationObserver instead of extending the
-// modal's prototype because the modal class is lazy-loaded by core and
-// not statically importable through `flarum/admin/components/...` at
-// module load. Each TryHackX extension registers this independently;
-// repeated classList.add of the same class is a no-op.
+// Give the Cancel button in core's "Reset extension settings" modal Flarum's
+// standard `Button--inverted` styling (core renders it as a plain borderless
+// button). The modal is registered in the admin component registry, so we
+// extend it directly instead of running a whole-document MutationObserver for
+// the entire admin session. Guarded in case a future core build drops it.
 app.initializers.add('tryhackx-homepage-blocks-cancel-inverted', () => {
-    const invertCancel = (modal) => {
-        const cancel = modal.querySelector('.Form-controls .Button:not(.Button--danger):not(.Button--primary)');
+    if (!ResetExtensionSettingsModal || !ResetExtensionSettingsModal.prototype) return;
+
+    const invertCancel = function () {
+        const root = this.element;
+        if (!root) return;
+        const cancel = root.querySelector('.Form-controls .Button:not(.Button--danger):not(.Button--primary)');
         if (cancel) cancel.classList.add('Button--inverted');
     };
-    const observer = new MutationObserver((mutations) => {
-        for (const mut of mutations) {
-            for (const node of mut.addedNodes) {
-                if (node.nodeType !== 1) continue;
-                if (node.classList && node.classList.contains('ResetExtensionSettingsModal')) {
-                    invertCancel(node);
-                } else if (node.querySelectorAll) {
-                    node.querySelectorAll('.ResetExtensionSettingsModal').forEach(invertCancel);
-                }
-            }
-        }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+
+    extend(ResetExtensionSettingsModal.prototype, 'oncreate', invertCancel);
+    extend(ResetExtensionSettingsModal.prototype, 'onupdate', invertCancel);
 });
 
 /**
@@ -467,6 +461,41 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                     helpKey ? m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.' + helpKey)) : null,
                 ]);
 
+            // Tryb egzekwowania po wyczerpaniu punktów: captcha lub blokada IP.
+            const enforcementRaw = this.setting(S + '.recaptcha_points_enforcement')();
+            const enforcement = enforcementRaw === 'block' ? 'block' : 'captcha';
+            const blockMode = enforcement === 'block';
+
+            const enforcementField = m('div', { className: 'Form-group', style: fieldStyle }, [
+                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement')),
+                m('select', {
+                    className: 'FormControl',
+                    disabled: !enabled,
+                    value: enforcement,
+                    onchange: (e) => this.setting(S + '.recaptcha_points_enforcement')(e.target.value),
+                }, [
+                    m('option', { value: 'captcha' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement_captcha')),
+                    m('option', { value: 'block' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement_block')),
+                ]),
+                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement_help')),
+            ]);
+
+            const blockSecondsField = m('div', { className: 'Form-group', style: fieldStyle }, [
+                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_seconds')),
+                m('input', {
+                    type: 'number',
+                    className: 'FormControl',
+                    placeholder: '60',
+                    step: 1,
+                    min: 1,
+                    max: 86400,
+                    disabled: !enabled || !blockMode,
+                    value: this.setting(S + '.recaptcha_points_block_seconds')() || '',
+                    oninput: (e) => this.setting(S + '.recaptcha_points_block_seconds')(e.target.value),
+                }),
+                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_seconds_help')),
+            ]);
+
             return m('div', { className: 'Form-group HomepageBlocks-pointsGroup', style: grp }, [
                 m('div', { style: rowStyle }, [
                     numField.call(this, 'recaptcha_points_start', 'recaptcha_points_start', 'recaptcha_points_start_help', '10', 0.1, 0, 10000),
@@ -476,12 +505,14 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                 m('div', { style: rowStyle }, [
                     numField.call(this, 'recaptcha_points_guest_extra', 'recaptcha_points_guest_extra', 'recaptcha_points_guest_extra_help', '2', 0.1, 0, 10000),
                 ]),
-                m('h4', { style: { marginTop: '12px', marginBottom: '6px' } }, 'Action costs'),
+                m('div', { style: { ...rowStyle, marginTop: '12px' } }, [
+                    enforcementField,
+                    blockSecondsField,
+                ]),
+                m('h4', { style: { marginTop: '12px', marginBottom: '6px' } }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.points_costs_header')),
                 m('div', { style: rowStyle }, [
                     numField.call(this, 'recaptcha_points_cost_random', 'recaptcha_points_cost_random', null, '0.5', 0.1, 0, 10000),
                     numField.call(this, 'recaptcha_points_cost_search', 'recaptcha_points_cost_search', null, '3', 0.1, 0, 10000),
-                    numField.call(this, 'recaptcha_points_cost_stats', 'recaptcha_points_cost_stats', null, '1', 0.1, 0, 10000),
-                    numField.call(this, 'recaptcha_points_cost_external_stats', 'recaptcha_points_cost_external_stats', null, '1', 0.1, 0, 10000),
                 ]),
             ]);
         });

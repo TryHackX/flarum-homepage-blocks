@@ -1,0 +1,12 @@
+/vendor/
+/node_modules/
+/js/node_modules/
+/.claude/
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+*.log
+composer.lock
+PUBLISH.md
+PUBLISHING.md

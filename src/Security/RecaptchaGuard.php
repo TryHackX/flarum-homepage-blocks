@@ -7,31 +7,37 @@ use Flarum\Settings\SettingsRepositoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * Shared reCAPTCHA gate for homepage-blocks API endpoints.
+ * Wspólna bramka ochrony dla endpointów homepage-blocks.
  *
- * Scope keys: 'random', 'stats', 'external_stats', 'search'.
+ * Zakresy: 'random', 'stats', 'external_stats', 'search'.
  *
- * Two modes:
- *   1. Classic (points disabled) — every allowed request must carry a valid
- *      reCAPTCHA token.
- *   2. Points-based — each IP has a balance. Requests decrement it; when the
- *      balance drops below the action's cost, a captcha is required to refill.
+ * Trzy tryby działania (mogą się łączyć):
+ *   1. Limiter punktowy WYŁĄCZONY, reCAPTCHA WŁĄCZONA — każde dozwolone żądanie
+ *      musi nieść poprawny token reCAPTCHA (tryb klasyczny).
+ *   2. Limiter punktowy WŁĄCZONY, egzekwowanie = 'captcha' — kubełek punktów per
+ *      IP; po wyczerpaniu wymagane jest reCAPTCHA, które odnawia kubełek.
+ *   3. Limiter punktowy WŁĄCZONY, egzekwowanie = 'block' — kubełek punktów per IP;
+ *      po wyczerpaniu IP jest tymczasowo blokowane na czas z ustawień
+ *      (NIE wymaga reCAPTCHA). To pozwala chronić forum bez Google reCAPTCHA.
  *
- * verify() returns an array with keys:
- *   - ok             bool   — whether the request may proceed
- *   - captcha_required bool — if points are exhausted and no valid token provided
- *   - balance        ?float — remaining points (points mode only)
- *   - cost           ?float — cost charged for this action (points mode only)
+ * verify() zwraca tablicę z kluczami:
+ *   - ok               bool   — czy żądanie może przejść
+ *   - captcha_required bool   — punkty wyczerpane, wymagane reCAPTCHA
+ *   - blocked          bool   — IP tymczasowo zablokowane
+ *   - retry_after      ?int   — za ile sekund można spróbować ponownie (blokada)
+ *   - balance          ?float — pozostałe punkty (tryb punktowy)
+ *   - cost             ?float — koszt pobrany za tę akcję (tryb punktowy)
+ *   - refilled         ?bool  — czy kubełek odnowiono po captcha
  */
 class RecaptchaGuard
 {
     public function __construct(
         protected SettingsRepositoryInterface $settings,
-        protected ?PointsManager $points = null
+        protected PointsManager $points
     ) {}
 
     /**
-     * Back-compat helper returning a simple bool.
+     * Pomocnik wstecznie zgodny zwracający proste bool.
      */
     public function check(ServerRequestInterface $request, string $scope): bool
     {
@@ -39,16 +45,19 @@ class RecaptchaGuard
     }
 
     /**
-     * Full verification, returning ok/balance/captcha_required.
+     * Pełna weryfikacja.
      */
     public function verify(ServerRequestInterface $request, string $scope): array
     {
-        // Global toggle — nothing to enforce when disabled
-        if (!(bool) $this->settings->get('tryhackx-homepage-blocks.recaptcha_enabled')) {
+        $recaptchaEnabled = (bool) $this->settings->get('tryhackx-homepage-blocks.recaptcha_enabled');
+        $pointsActive = $this->points && $this->points->isEnabled();
+
+        // Nic nie włączone — nie ma czego egzekwować.
+        if (!$recaptchaEnabled && !$pointsActive) {
             return ['ok' => true];
         }
 
-        // Per-scope toggle — unset defaults to true (on)
+        // Przełącznik per-zakres — brak ustawienia domyślnie = włączone.
         $scopeSetting = 'tryhackx-homepage-blocks.recaptcha_on_' . $scope;
         $scopeValue = $this->settings->get($scopeSetting);
         $scopeEnabled = ($scopeValue === null) ? true : (bool) $scopeValue;
@@ -56,7 +65,7 @@ class RecaptchaGuard
             return ['ok' => true];
         }
 
-        // Skip for authenticated users when configured
+        // Pomiń dla zalogowanych, jeśli tak skonfigurowano.
         $skipAuthRaw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_skip_authenticated');
         $skipAuth = ($skipAuthRaw === null) ? true : (bool) $skipAuthRaw;
         $isGuest = true;
@@ -69,30 +78,74 @@ class RecaptchaGuard
                 }
             }
         } catch (\Throwable $e) {
-            // assume guest on failure
+            // w razie błędu zakładamy gościa
         }
 
         $token = $this->extractToken($request);
 
-        // ── Points mode ──
-        if ($this->points && $this->points->isEnabled()) {
-            $ip = $this->points->getIp($request);
-            $cost = $this->points->getCost($scope, $isGuest);
-
-            // Try to charge the bucket
-            $charge = $this->points->charge($ip, $cost);
-            if ($charge['ok']) {
-                return [
-                    'ok' => true,
-                    'balance' => $charge['balance'],
-                    'cost' => $cost,
-                ];
+        // ── Tryb punktowy ──
+        if ($pointsActive) {
+            // Punktami mierzymy TYLKO akcje inicjowane przez użytkownika
+            // (losowanie, wyszukiwanie/filtry). Statystyki są ładowane pasywnie
+            // i odświeżane automatycznie — naliczanie za nie punktów blokowałoby
+            // zwykłych widzów. Chroni je cache + pojedynczy fetch (flock) po
+            // stronie serwera, więc tu po prostu przepuszczamy.
+            if (in_array($scope, ['random', 'search'], true)) {
+                return $this->verifyPoints($request, $scope, $isGuest, $token, $recaptchaEnabled);
             }
+            return ['ok' => true];
+        }
 
-            // Insufficient balance — require captcha this time
+        // ── Tryb klasyczny: każde żądanie musi nieść poprawny token ──
+        if (!$token || !$this->verifyToken($token)) {
+            return ['ok' => false];
+        }
+
+        return ['ok' => true];
+    }
+
+    /**
+     * Logika trybu punktowego z egzekwowaniem captcha/blokada.
+     */
+    protected function verifyPoints(
+        ServerRequestInterface $request,
+        string $scope,
+        bool $isGuest,
+        ?string $token,
+        bool $recaptchaEnabled
+    ): array {
+        $ip = $this->points->getIp($request);
+        $cost = $this->points->getCost($scope, $isGuest);
+
+        // 1) Czy IP jest już zablokowane?
+        $remaining = $this->points->getBlockRemaining($ip);
+        if ($remaining > 0) {
+            return [
+                'ok' => false,
+                'blocked' => true,
+                'retry_after' => $remaining,
+                'balance' => 0,
+                'cost' => $cost,
+            ];
+        }
+
+        // 2) Spróbuj pobrać koszt.
+        $charge = $this->points->charge($ip, $cost);
+        if ($charge['ok']) {
+            return [
+                'ok' => true,
+                'balance' => $charge['balance'],
+                'cost' => $cost,
+            ];
+        }
+
+        // 3) Punkty wyczerpane — egzekwowanie.
+        $enforcement = $this->points->getEnforcement();
+        $canCaptcha = $recaptchaEnabled && $this->captchaConfigured();
+
+        if ($enforcement === 'captcha' && $canCaptcha) {
             if ($token && $this->verifyToken($token)) {
                 $newBalance = $this->points->refillToStart($ip);
-                // Deduct cost from fresh balance
                 $charge = $this->points->charge($ip, $cost);
                 return [
                     'ok' => true,
@@ -110,12 +163,27 @@ class RecaptchaGuard
             ];
         }
 
-        // ── Classic mode: every request must carry a valid token ──
-        if (!$token || !$this->verifyToken($token)) {
-            return ['ok' => false];
-        }
+        // 4) Tryb blokady (lub captcha niedostępna) — zablokuj IP na czas z ustawień.
+        $seconds = $this->points->block($ip, $this->points->getBlockSeconds());
 
-        return ['ok' => true];
+        return [
+            'ok' => false,
+            'blocked' => true,
+            'retry_after' => $seconds,
+            'balance' => 0,
+            'cost' => $cost,
+        ];
+    }
+
+    /**
+     * Czy reCAPTCHA jest realnie skonfigurowana (oba klucze)?
+     * Bez tego tryb 'captcha' nie ma jak zadziałać i degradujemy do blokady.
+     */
+    protected function captchaConfigured(): bool
+    {
+        $site = $this->settings->get('tryhackx-homepage-blocks.recaptcha_site_key');
+        $secret = $this->settings->get('tryhackx-homepage-blocks.recaptcha_secret_key');
+        return !empty($site) && !empty($secret);
     }
 
     protected function extractToken(ServerRequestInterface $request): ?string
@@ -132,8 +200,8 @@ class RecaptchaGuard
     }
 
     /**
-     * Call Google's siteverify endpoint and check the response.
-     * For v3, the score must be >= the configured threshold.
+     * Wywołanie endpointu siteverify Google i sprawdzenie odpowiedzi.
+     * Dla v3 wynik musi być >= skonfigurowanego progu.
      */
     public function verifyToken(string $token): bool
     {
@@ -176,8 +244,7 @@ class RecaptchaGuard
     }
 
     /**
-     * Resolve v3 threshold from settings, clamped to [0.0, 1.0].
-     * Default is 0.5 when unset or invalid.
+     * Próg v3 z ustawień, ograniczony do [0.0, 1.0]. Domyślnie 0.5.
      */
     protected function getThreshold(): float
     {

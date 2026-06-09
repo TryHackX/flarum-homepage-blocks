@@ -6,133 +6,175 @@ use Flarum\Discussion\Discussion;
 use Flarum\Foundation\Paths;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
-use Illuminate\Database\ConnectionInterface;
 use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use TryHackX\HomepageBlocks\Security\PointsManager;
+use TryHackX\HomepageBlocks\Concerns\BuildsGuardResponse;
+use TryHackX\HomepageBlocks\Model\MagnetLink;
 use TryHackX\HomepageBlocks\Security\RecaptchaGuard;
 
 class TrackerStatsController implements RequestHandlerInterface
 {
+    use BuildsGuardResponse;
+
     public function __construct(
+        protected RecaptchaGuard $guard,
         protected SettingsRepositoryInterface $settings,
-        protected ConnectionInterface $db,
         protected Paths $paths
     ) {}
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
         $source = $request->getQueryParams()['source'] ?? null;
-        $scope = ($source === 'external') ? 'external_stats' : 'stats';
 
-        // Verify reCAPTCHA per-scope with optional points-based gating
-        $points = new PointsManager($this->settings, $this->paths);
-        $guard = new RecaptchaGuard($this->settings, $points);
-        $result = $guard->verify($request, $scope);
-
-        if (empty($result['ok'])) {
-            if (!empty($result['captcha_required'])) {
-                return new JsonResponse([
-                    'error' => 'captcha_required',
-                    'captcha_required' => true,
-                    'balance' => $result['balance'] ?? 0,
-                    'cost' => $result['cost'] ?? null,
-                ], 403);
-            }
-            return new JsonResponse(['error' => 'reCAPTCHA verification failed'], 403);
-        }
-
-        $response = [
-            'balance' => $result['balance'] ?? null,
-            'cost' => $result['cost'] ?? null,
-            'refilled' => $result['refilled'] ?? false,
-        ];
-
-        // If requesting external stats
         if ($source === 'external') {
-            $externalEnabled = (bool) $this->settings->get('tryhackx-homepage-blocks.external_stats_enabled');
-            $mode = $this->settings->get('tryhackx-homepage-blocks.external_stats_mode') ?: 'native';
-            $nativeUrl = $this->settings->get('tryhackx-homepage-blocks.external_stats_native_url');
-            $proxyUrl = $this->settings->get('tryhackx-homepage-blocks.external_stats_url');
-
-            // Determine which URL to use based on mode
-            $fetchUrl = ($mode === 'native' && $nativeUrl) ? $nativeUrl : $proxyUrl;
-            $isNative = ($mode === 'native' && $nativeUrl);
-
-            if ($externalEnabled && $fetchUrl) {
-                $refreshInterval = max(1, (int) ($this->settings->get('tryhackx-homepage-blocks.external_stats_refresh') ?: 5));
-
-                // Try to serve from file cache first (instant response)
-                $cached = $this->getCachedExternalStats($refreshInterval);
-                if ($cached !== null) {
-                    $response['external'] = $cached;
-                    $response['cached'] = true;
-                    return new JsonResponse($response);
-                }
-
-                // Cache miss or expired — fetch fresh data
-                $externalStats = $isNative
-                    ? $this->fetchNativeOpenTracker($fetchUrl)
-                    : $this->fetchExternalStats($fetchUrl);
-
-                if ($externalStats !== null) {
-                    $this->setCachedExternalStats($externalStats);
-                    $response['external'] = $externalStats;
-                } else {
-                    // Serve stale cache if fresh fetch failed
-                    $stale = $this->getCachedExternalStats(3600); // accept up to 1 hour stale
-                    if ($stale !== null) {
-                        $response['external'] = $stale;
-                        $response['cached'] = true;
-                        $response['stale'] = true;
-                    } else {
-                        $response['external'] = null;
-                        $response['external_error'] = 'Failed to fetch external stats';
-                    }
-                }
-            }
-
-            return new JsonResponse($response);
+            return $this->handleExternal($request);
         }
 
-        // Default: return internal stats
+        return $this->handleInternal($request);
+    }
+
+    // ────────────── Statystyki wewnętrzne (baza) ──────────────
+
+    protected function handleInternal(ServerRequestInterface $request): ResponseInterface
+    {
+        // W trybie punktowym statystyki nie są mierzone (przepuszczane); w trybie
+        // klasycznej reCAPTCHA wymagany jest token — to rozstrzyga bramka.
+        $result = $this->guard->verify($request, 'stats');
+        if ($error = $this->guardError($result)) {
+            return $error;
+        }
+
         $stats = [];
         $stats['discussions'] = Discussion::whereNull('hidden_at')->count();
         $stats['users'] = User::count();
 
-        // Magnet stats (from tryhackx/flarum-magnet-link if installed)
+        // Magnety (z tryhackx/flarum-magnet-link, jeśli zainstalowane).
         try {
-            $stats['magnets'] = $this->db->table('magnet_links')->count();
-            $stats['magnet_clicks'] = (int) $this->db->table('magnet_links')->sum('click_count');
-        } catch (\Exception $e) {
+            $stats['magnets'] = MagnetLink::count();
+            $stats['magnet_clicks'] = (int) MagnetLink::sum('click_count');
+        } catch (\Throwable $e) {
             $stats['magnets'] = 0;
             $stats['magnet_clicks'] = 0;
         }
 
-        // View stats (from fof/discussion-views if installed)
+        // Wyświetlenia (z fof/discussion-views, jeśli zainstalowane).
         try {
             $stats['total_views'] = (int) Discussion::sum('view_count');
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $stats['total_views'] = 0;
         }
 
-        // Average rating (from tryhackx/flarum-topic-rating if installed)
+        // Średnia ocena (z tryhackx/flarum-topic-rating, jeśli zainstalowane).
         try {
             $stats['avg_rating'] = round((float) Discussion::where('rating_count', '>', 0)->avg('rating_average'), 2);
             $stats['rated_count'] = (int) Discussion::where('rating_count', '>', 0)->count();
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $stats['avg_rating'] = 0;
             $stats['rated_count'] = 0;
         }
 
-        $response['data'] = $stats;
-
-        return new JsonResponse($response);
+        return new JsonResponse([
+            'balance' => $result['balance'] ?? null,
+            'cost' => $result['cost'] ?? null,
+            'refilled' => $result['refilled'] ?? false,
+            'data' => $stats,
+        ]);
     }
 
-    // ────────────── File-based cache ──────────────
+    // ────────────── Statystyki zewnętrzne (OpenTracker / proxy) ──────────────
+
+    protected function handleExternal(ServerRequestInterface $request): ResponseInterface
+    {
+        $externalEnabled = (bool) $this->settings->get('tryhackx-homepage-blocks.external_stats_enabled');
+        $mode = $this->settings->get('tryhackx-homepage-blocks.external_stats_mode') ?: 'native';
+        $nativeUrl = $this->settings->get('tryhackx-homepage-blocks.external_stats_native_url');
+        $proxyUrl = $this->settings->get('tryhackx-homepage-blocks.external_stats_url');
+
+        $fetchUrl = ($mode === 'native' && $nativeUrl) ? $nativeUrl : $proxyUrl;
+        $isNative = ($mode === 'native' && $nativeUrl);
+
+        if (!$externalEnabled || !$fetchUrl) {
+            return new JsonResponse(['external' => null]);
+        }
+
+        $refreshInterval = max(1, (int) ($this->settings->get('tryhackx-homepage-blocks.external_stats_refresh') ?: 5));
+
+        // 1) Serwuj z cache jako pierwsze — BEZ naliczania punktów. Auto-odświeżanie
+        //    UI jest legalne; dzielony cache + pojedynczy fetch (flock) sprawiają, że
+        //    do źródła idzie najwyżej jedno zapytanie na interwał, globalnie.
+        $cached = $this->getCachedExternalStats($refreshInterval);
+        if ($cached !== null) {
+            return new JsonResponse(['external' => $cached, 'cached' => true]);
+        }
+
+        // 2) Pudło w cache — przepuść przez bramkę (tryb klasyczny wymaga tokenu;
+        //    tryb punktowy przepuszcza, bo statystyki nie są mierzone).
+        $result = $this->guard->verify($request, 'external_stats');
+        if ($error = $this->guardError($result)) {
+            return $error;
+        }
+
+        // 3) Pojedynczy fetch (flock): tylko jeden worker odświeża, reszta dostaje
+        //    stale/pending — zapobiega thundering herd przy zimnym cache (audyt B1).
+        $fresh = $this->refreshExternalSingleFlight($isNative, $fetchUrl, $refreshInterval);
+        if ($fresh !== null) {
+            return new JsonResponse(['external' => $fresh]);
+        }
+
+        // 4) Świeży fetch się nie udał lub trwa u innego workera — podaj stale (do 1h).
+        $stale = $this->getCachedExternalStats(3600);
+        if ($stale !== null) {
+            return new JsonResponse(['external' => $stale, 'cached' => true, 'stale' => true]);
+        }
+
+        return new JsonResponse(['external' => null, 'external_pending' => true]);
+    }
+
+    /**
+     * Odśwież cache statystyk zewnętrznych pod blokadą flock (pojedynczy fetch).
+     * Zwraca świeże dane, albo null gdy lock zajęty lub fetch zawiódł.
+     */
+    protected function refreshExternalSingleFlight(bool $isNative, string $fetchUrl, int $refreshInterval): ?array
+    {
+        $lockPath = $this->getCacheFilePath() . '.lock';
+        $fp = @fopen($lockPath, 'c');
+
+        if ($fp === false) {
+            // Nie da się założyć locka — fetch best-effort bez ochrony.
+            $data = $isNative ? $this->fetchNativeOpenTracker($fetchUrl) : $this->fetchExternalStats($fetchUrl);
+            if ($data !== null) {
+                $this->setCachedExternalStats($data);
+            }
+            return $data;
+        }
+
+        if (!flock($fp, LOCK_EX | LOCK_NB)) {
+            // Inny worker już odświeża — nie czekamy (serwujemy stale wyżej).
+            fclose($fp);
+            return null;
+        }
+
+        try {
+            // Double-check: ktoś mógł odświeżyć cache zanim dostaliśmy lock.
+            $again = $this->getCachedExternalStats($refreshInterval);
+            if ($again !== null) {
+                return $again;
+            }
+
+            $data = $isNative ? $this->fetchNativeOpenTracker($fetchUrl) : $this->fetchExternalStats($fetchUrl);
+            if ($data !== null) {
+                $this->setCachedExternalStats($data);
+            }
+            return $data;
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+        }
+    }
+
+    // ────────────── Cache plikowy ──────────────
 
     protected function getCacheFilePath(): string
     {
@@ -148,7 +190,7 @@ class TrackerStatsController implements RequestHandlerInterface
 
         $mtime = filemtime($file);
         if ($mtime === false || (time() - $mtime) > $maxAgeSeconds) {
-            return null; // expired
+            return null; // wygasł
         }
 
         $content = @file_get_contents($file);
@@ -166,12 +208,11 @@ class TrackerStatsController implements RequestHandlerInterface
         @file_put_contents($file, json_encode($data), LOCK_EX);
     }
 
-    // ────────────── Native OpenTracker fetch (XML) ──────────────
+    // ────────────── Natywny OpenTracker (XML) ──────────────
 
     /**
-     * Fetch stats directly from OpenTracker's XML endpoint.
+     * Pobierz statystyki wprost z endpointu XML OpenTrackera.
      * URL: http://IP:6969/stats?mode=everything
-     * Parses XML and extracts: torrents, seeds, peers, completed, uptime.
      */
     protected function fetchNativeOpenTracker(string $url): ?array
     {
@@ -195,7 +236,7 @@ class TrackerStatsController implements RequestHandlerInterface
     }
 
     /**
-     * Fetch raw content from a URL using cURL or file_get_contents.
+     * Pobierz surową treść z URL (cURL, fallback file_get_contents).
      */
     protected function fetchRawContent(string $url): ?string
     {
@@ -204,12 +245,11 @@ class TrackerStatsController implements RequestHandlerInterface
                 $ch = curl_init();
                 curl_setopt($ch, CURLOPT_URL, $url);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
                 curl_setopt($ch, CURLOPT_USERAGENT, 'Flarum/2.0 HomepageBlocks');
                 curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+                curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
                 if (defined('CURLOPT_IPRESOLVE')) {
                     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
                 }
@@ -221,40 +261,35 @@ class TrackerStatsController implements RequestHandlerInterface
                     return $response;
                 }
             } catch (\Exception $e) {
-                // Fall through
+                // przejdź do fallbacku
             }
         }
 
         $context = stream_context_create([
-            'http' => ['timeout' => 15, 'method' => 'GET'],
+            'http' => ['timeout' => 12, 'method' => 'GET'],
         ]);
         $response = @file_get_contents($url, false, $context);
         return $response !== false ? $response : null;
     }
 
-    // ────────────── Proxy fetch (JSON) ──────────────
+    // ────────────── Proxy (JSON) ──────────────
 
     /**
-     * Fetch stats from external proxy URL.
-     * Expected JSON: {"torrents":"1844213","seeds":"1842707","peers":"3538585","completed":"4629049","uptime":333031}
+     * Pobierz statystyki z zewnętrznego URL proxy.
+     * Oczekiwany JSON: {"torrents":"...","seeds":"...","peers":"...","completed":"...","uptime":...}
      */
     protected function fetchExternalStats(string $url): ?array
     {
-        // Try cURL first (more reliable on Windows/WAMP)
         if (function_exists('curl_init')) {
             try {
                 $ch = curl_init();
                 curl_setopt($ch, CURLOPT_URL, $url);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
                 curl_setopt($ch, CURLOPT_USERAGENT, 'Flarum/2.0 HomepageBlocks');
                 curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
                 curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
-                // WAMP/Windows often has SSL certificate issues
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                // Force IPv4 to avoid IPv6 timeout issues common on Windows
                 if (defined('CURLOPT_IPRESOLVE')) {
                     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
                 }
@@ -269,22 +304,16 @@ class TrackerStatsController implements RequestHandlerInterface
                     }
                 }
             } catch (\Exception $e) {
-                // Fall through to file_get_contents
+                // przejdź do fallbacku
             }
         }
 
-        // Fallback: file_get_contents
         try {
             $context = stream_context_create([
                 'http' => [
-                    'timeout' => 30,
+                    'timeout' => 12,
                     'method' => 'GET',
                     'header' => "User-Agent: Flarum/2.0 HomepageBlocks\r\n",
-                ],
-                'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                    'allow_self_signed' => true,
                 ],
             ]);
 
@@ -297,7 +326,7 @@ class TrackerStatsController implements RequestHandlerInterface
                 }
             }
         } catch (\Exception $e) {
-            // ignore
+            // ignoruj
         }
 
         return null;
@@ -313,5 +342,4 @@ class TrackerStatsController implements RequestHandlerInterface
             'uptime' => $data['uptime'] ?? 0,
         ];
     }
-
 }

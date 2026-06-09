@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-09
+
+Security + reliability release. **No database migrations.** Existing installs
+that already use reCAPTCHA + points keep their current behaviour (the new
+"when points run out" action defaults to *Show reCAPTCHA*).
+
+### Added
+- **IP-block rate limiting — the points system now works without reCAPTCHA.**
+  New admin setting **"When points run out"** lets you choose between *Show
+  reCAPTCHA challenge* (previous behaviour) and *Temporarily block the IP* for
+  a configurable **"IP block duration"** (default 60 s). Block mode needs no
+  Google reCAPTCHA keys at all — ideal if you only want simple per-IP rate
+  limiting. When the block expires the visitor's budget resets to full.
+- **Professional "slow down" notice.** When an IP is blocked the visitor sees a
+  dismissible alert with a live countdown ("Too many actions — try again in
+  N s", then "You can try again now"), in Polish and English. Blocked responses
+  use HTTP `429` with a `Retry-After` header; the stats auto-refresh backs off
+  for the block duration instead of hammering the server.
+- The points budget refills continuously (unchanged), so casual, regular use
+  stays smooth while bursts are throttled.
+
+### Security
+- **IP rate limiting can no longer be bypassed with a spoofed header.** Per-IP
+  buckets are now keyed on Flarum core's `ipAddress` (set by the `ProcessIp`
+  middleware, honouring configured trusted proxies) instead of the
+  client-supplied `X-Forwarded-For` / `X-Real-IP`. Previously any visitor could
+  send a fresh header on each request to get an unlimited new budget, defeating
+  the captcha/points gate entirely.
+- **Random-discussion endpoint now respects visibility.** It scopes with
+  `whereVisibleTo($actor)`, so it can no longer reveal the id/slug/title of
+  discussions in restricted tags or of pending (unapproved) discussions. It
+  previously only excluded private/hidden rows.
+- **Outbound HTTPS for external stats now verifies TLS** (removed the global
+  `CURLOPT_SSL_VERIFYPEER=false` / `VERIFYHOST=0` and the `verify_peer=>false`
+  stream fallback).
+- The points economy (starting balance, refill, action costs, block duration)
+  is **no longer serialised into the public forum payload** — only the on/off
+  flag the frontend needs is exposed.
+
+### Performance & robustness
+- **External stats no longer cause a thundering herd.** The cold-cache fetch is
+  single-flighted with a file lock (one worker refreshes, the rest serve cached
+  or stale data) and is moved off the points budget, so the UI's periodic
+  refresh is free and shared across visitors. Fetch timeout lowered 30 s → 12 s.
+- **Random discussion no longer uses `ORDER BY RAND()`** (full filesort); it now
+  counts matches and picks a random offset.
+- Rating sorts and the *Rating interval* filter are **registered only when
+  `tryhackx/flarum-topic-rating` is enabled** (via `Extend\Conditional`), and
+  the matching UI options — plus the *Views* sort (needs `fof/discussion-views`)
+  — are hidden when their provider is absent. On a forum without those
+  extensions, selecting them no longer triggers an HTTP 500.
+- Per-IP bucket files are now written atomically and **garbage-collected**
+  (probabilistic cleanup of long-idle files) so the cache directory can't grow
+  without bound.
+
+### Changed
+- API controllers use constructor dependency injection instead of manually
+  `new`-ing `PointsManager` / `RecaptchaGuard`.
+- The Reflection-based title/content length override moved from a global
+  `replaceMinMax()` function into an injected `FieldLengthModifier` class.
+- Magnet stats are read through a thin `MagnetLink` Eloquent model instead of a
+  raw database connection.
+- The Cancel button in core's *Reset extension settings* modal is now styled by
+  extending `ResetExtensionSettingsModal` directly, replacing the previous
+  document-wide `MutationObserver`.
+- `UserFilter` uses a `whereExists` sub-query instead of joining the `users`
+  table (prevents "table already joined" errors when combined with other
+  gambits). Interval filters now tolerate array input.
+- `composer.json`: `flarum/tags` pinned to `^2.0.0-rc.1` (was `*`);
+  `minimum-stability: dev` removed.
+
+### Removed
+- The misleading **"Steam DB Rating"** sort option (it was a duplicate of
+  *Average rating*).
+- Dead code: unused `DatabaseSearchState` imports, the unused
+  `guardedAction` / `isCaptchaRequiredResponse` helpers, non-functional sort
+  aliases, and unused locale keys.
+
 ## [2.0.5] - 2026-06-01
 
 ### Fixed

@@ -1,61 +1,116 @@
 import app from 'flarum/forum/app';
+import RateLimitNotice from '../components/RateLimitNotice';
+
+const S = 'tryhackx-homepage-blocks';
 
 /**
- * Check whether a Flarum boolean-ish setting attribute is truthy.
- * Handles true, 1, '1', 'true'. Treats unset (null/undefined) as default (true for scope toggles).
+ * Czy wartość ustawienia (bool-ish) jest prawdziwa?
+ * Obsługuje true, 1, '1', 'true'. Nieustawione (null/undefined) traktujemy osobno.
  */
 function isTruthy(value) {
     if (value === true || value === 1 || value === '1' || value === 'true') return true;
     return false;
 }
 
+function attr(key) {
+    return app.forum.attribute(S + '.' + key);
+}
+
+function scopeEnabled(scope) {
+    const raw = attr('recaptcha_on_' + scope);
+    return (raw === null || raw === undefined) ? true : isTruthy(raw);
+}
+
+function skipsAuthenticated() {
+    const raw = attr('recaptcha_skip_authenticated');
+    const skip = (raw === null || raw === undefined) ? true : isTruthy(raw);
+    return skip && app.session && app.session.user;
+}
+
 /**
- * Should reCAPTCHA be applied for this scope?
- * Scopes: 'random' | 'stats' | 'external_stats' | 'search'
+ * Czy dla tego zakresu należy pobierać token reCAPTCHA?
+ * (Wymaga włączonej reCAPTCHA — w trybie samych punktów/blokady zwraca false.)
+ * Zakresy: 'random' | 'stats' | 'external_stats' | 'search'
  */
 export function recaptchaRequiredFor(scope) {
-    // Global toggle
-    if (!isTruthy(app.forum.attribute('tryhackx-homepage-blocks.recaptcha_enabled'))) {
-        return false;
-    }
-
-    // Per-scope toggle — default true when unset
-    const raw = app.forum.attribute('tryhackx-homepage-blocks.recaptcha_on_' + scope);
-    const scopeEnabled = (raw === null || raw === undefined) ? true : isTruthy(raw);
-    if (!scopeEnabled) {
-        return false;
-    }
-
-    // Skip for authenticated users when configured (default: true)
-    const skipAuthRaw = app.forum.attribute('tryhackx-homepage-blocks.recaptcha_skip_authenticated');
-    const skipAuth = (skipAuthRaw === null || skipAuthRaw === undefined) ? true : isTruthy(skipAuthRaw);
-    if (skipAuth && app.session && app.session.user) {
-        return false;
-    }
-
+    if (!isTruthy(attr('recaptcha_enabled'))) return false;
+    if (!scopeEnabled(scope)) return false;
+    if (skipsAuthenticated()) return false;
     return true;
 }
 
 /**
- * Is the points-based system enabled globally?
+ * Czy limiter punktowy jest włączony globalnie?
  */
 export function pointsEnabled() {
-    return isTruthy(app.forum.attribute('tryhackx-homepage-blocks.recaptcha_points_enabled'));
+    return isTruthy(attr('recaptcha_points_enabled'));
 }
 
 /**
- * Obtain a reCAPTCHA v3 token for a given action. Returns null if reCAPTCHA
- * is not required for this scope, or if token generation fails.
+ * Czy dla tego zakresu w ogóle działa bramka ochrony (reCAPTCHA LUB punkty)?
+ * Decyduje, czy robić pre-flight. Lustrzane do logiki serwera: w trybie
+ * punktowym mierzone są tylko akcje 'random' i 'search'.
+ */
+export function guardActiveFor(scope) {
+    const recaptcha = isTruthy(attr('recaptcha_enabled'));
+    const points = pointsEnabled();
+    if (!recaptcha && !points) return false;
+    if (!scopeEnabled(scope)) return false;
+    if (skipsAuthenticated()) return false;
+
+    if (points) {
+        // Statystyki są pasywne — serwer ich nie mierzy w trybie punktowym.
+        return scope === 'random' || scope === 'search';
+    }
+
+    // Tryb klasycznej reCAPTCHA chroni wszystkie włączone zakresy.
+    return true;
+}
+
+/**
+ * Czy odpowiedź oznacza tymczasową blokadę IP (zbyt wiele akcji)?
+ */
+export function isRateLimitedResponse(status, body) {
+    return status === 429 || (body && (body.blocked === true || body.error === 'rate_limited'));
+}
+
+/**
+ * Pokaż profesjonalne powiadomienie o blokadzie z odliczaniem.
+ * Nie spiętrza wielu alertów naraz.
+ */
+export function showRateLimitNotice(retryAfter) {
+    const seconds = Math.max(1, parseInt(retryAfter, 10) || 1);
+
+    if (app._homepageRateLimitAlert) {
+        try { app.alerts.dismiss(app._homepageRateLimitAlert); } catch (e) {}
+        app._homepageRateLimitAlert = null;
+    }
+
+    let key;
+    const onDone = () => {
+        if (key) {
+            try { app.alerts.dismiss(key); } catch (e) {}
+        }
+        if (app._homepageRateLimitAlert === key) app._homepageRateLimitAlert = null;
+    };
+
+    key = app.alerts.show({ type: 'error', dismissible: true }, m(RateLimitNotice, { seconds, onDone }));
+    app._homepageRateLimitAlert = key;
+}
+
+/**
+ * Pobierz token reCAPTCHA v3 dla akcji. Zwraca null, gdy reCAPTCHA nie jest
+ * wymagana dla zakresu albo generowanie tokenu się nie powiodło.
  */
 export async function getRecaptchaToken(scope) {
     if (!recaptchaRequiredFor(scope)) {
         return null;
     }
 
-    const siteKey = app.forum.attribute('tryhackx-homepage-blocks.recaptcha_site_key');
-    const version = app.forum.attribute('tryhackx-homepage-blocks.recaptcha_version') || 'v3';
+    const siteKey = attr('recaptcha_site_key');
+    const version = attr('recaptcha_version') || 'v3';
 
-    // For v2 we return whatever the modal collects (handled elsewhere).
+    // Dla v2 token zbiera modal (obsługiwane gdzie indziej).
     if (!siteKey || version !== 'v3' || !window.grecaptcha) {
         return null;
     }
@@ -70,7 +125,7 @@ export async function getRecaptchaToken(scope) {
 }
 
 /**
- * Append recaptcha_token to a URL if a token is available for this scope.
+ * Dopnij recaptcha_token do URL, jeśli token jest dostępny dla zakresu.
  */
 export async function appendRecaptchaToken(url, scope) {
     const token = await getRecaptchaToken(scope);
@@ -80,13 +135,13 @@ export async function appendRecaptchaToken(url, scope) {
 }
 
 /**
- * Pre-flight check: ask the server whether this action is allowed for the
- * caller right now. In points mode this decrements the bucket; in classic
- * mode it validates the current token.
+ * Pre-flight: zapytaj serwer, czy akcja jest teraz dozwolona dla dzwoniącego.
+ * W trybie punktowym dekrementuje kubełek; w klasycznym waliduje token.
  *
- * Returns an object:
+ * Zwraca:
  *   { ok: true, balance, cost, refilled }
  *   { ok: false, captchaRequired: true, balance }
+ *   { ok: false, blocked: true, retryAfter, balance }
  *   { ok: false, captchaRequired: false, error }
  */
 export async function preflightCheck(scope, token = null) {
@@ -94,7 +149,6 @@ export async function preflightCheck(scope, token = null) {
     if (token) {
         url += '&recaptcha_token=' + encodeURIComponent(token);
     } else {
-        // Still attach a v3 token if we can — covers classic mode
         const silent = await getRecaptchaToken(scope);
         if (silent) {
             url += '&recaptcha_token=' + encodeURIComponent(silent);
@@ -108,12 +162,21 @@ export async function preflightCheck(scope, token = null) {
             headers: { 'Accept': 'application/json' },
         });
         const data = await res.json().catch(() => ({}));
+
         if (res.ok && data && data.ok) {
             return {
                 ok: true,
                 balance: data.balance ?? null,
                 cost: data.cost ?? null,
                 refilled: !!data.refilled,
+            };
+        }
+        if (isRateLimitedResponse(res.status, data)) {
+            return {
+                ok: false,
+                blocked: true,
+                retryAfter: (data && (data.retry_after ?? data.retryAfter)) ?? 0,
+                balance: (data && data.balance) ?? 0,
             };
         }
         if (res.status === 403 && data && data.captcha_required) {
@@ -135,44 +198,11 @@ export async function preflightCheck(scope, token = null) {
 }
 
 /**
- * High-level helper: run a guarded action for a given scope. If the server
- * says a captcha is required, show the CaptchaModal; on success retry the
- * action.
- *
- * `run` is an async function called with { token } — token is non-null only
- * after a successful captcha refill.
- *
- * Returns whatever `run()` returned, or null if the user dismissed the
- * captcha modal.
- */
-export async function guardedAction(scope, run) {
-    // Nothing to do if the scope is disabled — just run it
-    if (!recaptchaRequiredFor(scope)) {
-        return await run({ token: null });
-    }
-
-    // In points mode the server decides when a captcha is needed. We optimistically
-    // run the action; if it comes back with captcha_required, show the modal and retry.
-    try {
-        const result = await run({ token: null });
-        return result;
-    } catch (err) {
-        if (err && err.captchaRequired) {
-            const token = await showCaptchaModal(scope);
-            if (!token) return null;
-            return await run({ token });
-        }
-        throw err;
-    }
-}
-
-/**
- * Show the CaptchaModal and resolve with a token, or null if dismissed.
- * Imported lazily to avoid a circular dep with the component file.
+ * Pokaż CaptchaModal i rozwiąż tokenem, albo null po zamknięciu.
+ * Importowany leniwie, by uniknąć cyklicznej zależności z plikiem komponentu.
  */
 export function showCaptchaModal(scope) {
     return new Promise((resolve) => {
-        // Lazy require to avoid ES module circular reference issues
         const CaptchaModal = require('../components/CaptchaModal').default;
         app.modal.show(CaptchaModal, {
             scope,
@@ -180,12 +210,4 @@ export function showCaptchaModal(scope) {
             onDismiss: () => resolve(null),
         });
     });
-}
-
-/**
- * Helper to normalise a 403 captcha_required response into a thrown error
- * that guardedAction recognises.
- */
-export function isCaptchaRequiredResponse(status, body) {
-    return status === 403 && body && (body.captcha_required || body.error === 'captcha_required');
 }

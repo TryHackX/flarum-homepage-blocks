@@ -34,7 +34,7 @@
     "require": {
         "php": "^8.2",
         "flarum/core": "^2.0.0-beta.7",
-        "flarum/tags": "*"
+        "flarum/tags": "^2.0.0-rc.1"
     },
     "suggest": {
         "fof/discussion-views": "For view count stats",
@@ -57,6 +57,5 @@
             }
         }
     },
-    "minimum-stability": "dev",
     "prefer-stable": true
 }

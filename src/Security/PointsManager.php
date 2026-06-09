@@ -6,18 +6,32 @@ use Flarum\Foundation\Paths;
 use Flarum\Http\RequestUtil;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TryHackX\HomepageBlocks\Concerns\ResolvesClientIp;
 
 /**
- * Per-IP point bucket used for rate limiting.
+ * Limiter akcji oparty na kubełku punktów (token-bucket) per IP klienta.
  *
- * Storage: storage/cache/tryhackx_points/{hash}.json — one file per IP.
- * File contents: {"balance": <float>, "ts": <unix>}.
+ * Magazyn: storage/cache/tryhackx_points/{hash}.json — jeden plik na IP.
+ * Zawartość: {"balance": <float>, "ts": <unix>, "blocked_until": <unix|0>}.
  *
- * Actions are charged against the bucket when the request arrives; if the
- * balance drops below the action's cost, a captcha is required to refill.
+ * Model działania:
+ *   - Każda chroniona akcja zdejmuje z kubełka koszt akcji.
+ *   - Kubełek odnawia się w czasie (+refill_amount co refill_seconds), do `start`
+ *     — dzięki temu normalne, regularne korzystanie nigdy nie wyczerpuje puli,
+ *     ale szybkie spamowanie ją drenuje.
+ *   - Gdy zabraknie punktów, egzekwowanie zależy od trybu (`enforcement`):
+ *       * 'captcha' — użytkownik rozwiązuje reCAPTCHA, co odnawia kubełek,
+ *       * 'block'   — IP zostaje tymczasowo zablokowane na `block_seconds`
+ *                     (nie wymaga reCAPTCHA). Po wygaśnięciu blokady kubełek
+ *                     jest resetowany do pełna.
+ *
+ * IP wyznaczamy przez rdzeń Flarum (atrybut `ipAddress`), NIE przez spoofowalne
+ * nagłówki — patrz {@see ResolvesClientIp}.
  */
 class PointsManager
 {
+    use ResolvesClientIp;
+
     public function __construct(
         protected SettingsRepositoryInterface $settings,
         protected Paths $paths
@@ -29,7 +43,27 @@ class PointsManager
     }
 
     /**
-     * Resolve the cost for a given action scope (with guest surcharge applied).
+     * Tryb egzekwowania po wyczerpaniu punktów: 'captcha' lub 'block'.
+     * Domyślnie 'captcha' (zachowanie zgodne wstecz).
+     */
+    public function getEnforcement(): string
+    {
+        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_enforcement');
+        $mode = is_string($raw) ? strtolower(trim($raw)) : '';
+        return $mode === 'block' ? 'block' : 'captcha';
+    }
+
+    /**
+     * Czas blokady IP w sekundach (tryb 'block'). Domyślnie 60, min 1.
+     */
+    public function getBlockSeconds(): int
+    {
+        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_block_seconds');
+        return ($raw === null || $raw === '') ? 60 : max(1, (int) $raw);
+    }
+
+    /**
+     * Koszt akcji dla danego zakresu (z dopłatą dla gości).
      */
     public function getCost(string $scope, bool $isGuest): float
     {
@@ -72,34 +106,11 @@ class PointsManager
     }
 
     /**
-     * Derive a stable IP for the caller. Honours X-Forwarded-For when present,
-     * fallback to REMOTE_ADDR. If nothing is set, use a generic "unknown" bucket.
+     * Stabilne IP dzwoniącego (rdzeń Flarum, odporne na spoofing nagłówków).
      */
     public function getIp(ServerRequestInterface $request): string
     {
-        $server = $request->getServerParams();
-
-        // Prefer the first entry from X-Forwarded-For if behind a proxy
-        $xff = $request->getHeaderLine('X-Forwarded-For');
-        if ($xff) {
-            $parts = explode(',', $xff);
-            $candidate = trim($parts[0]);
-            if ($candidate && filter_var($candidate, FILTER_VALIDATE_IP)) {
-                return $candidate;
-            }
-        }
-
-        $real = $request->getHeaderLine('X-Real-IP');
-        if ($real && filter_var(trim($real), FILTER_VALIDATE_IP)) {
-            return trim($real);
-        }
-
-        $remote = $server['REMOTE_ADDR'] ?? '';
-        if ($remote && filter_var($remote, FILTER_VALIDATE_IP)) {
-            return $remote;
-        }
-
-        return 'unknown';
+        return $this->getClientIp($request);
     }
 
     public function isGuest(ServerRequestInterface $request): bool
@@ -110,33 +121,63 @@ class PointsManager
                 return false;
             }
         } catch (\Throwable $e) {
-            // treat as guest on failure
+            // w razie błędu traktuj jak gościa
         }
         return true;
     }
 
     /**
-     * Load the current balance for an IP, applying any pending refills.
-     * Returns the effective balance; silently persists the refilled value.
+     * Pozostały czas blokady IP w sekundach (0 = nie zablokowany).
+     * Wygasłą blokadę czyści i resetuje kubełek do pełna.
+     */
+    public function getBlockRemaining(string $ip): int
+    {
+        $state = $this->normalize($this->readState($ip));
+        $this->writeState($ip, $state);
+
+        $remaining = (int) $state['blocked_until'] - time();
+        return max(0, $remaining);
+    }
+
+    /**
+     * Zablokuj IP na zadaną liczbę sekund (drenując kubełek).
+     */
+    public function block(string $ip, int $seconds): int
+    {
+        $seconds = max(1, $seconds);
+        $state = $this->normalize($this->readState($ip));
+        $state['balance'] = 0.0;
+        $state['ts'] = time();
+        $state['blocked_until'] = time() + $seconds;
+        $this->writeState($ip, $state);
+        return $seconds;
+    }
+
+    /**
+     * Aktualne saldo dla IP (po naliczeniu odnowień).
      */
     public function getBalance(string $ip): float
     {
-        $state = $this->readState($ip);
-        $state = $this->applyRefill($state);
+        $state = $this->normalize($this->readState($ip));
         $this->writeState($ip, $state);
         return (float) $state['balance'];
     }
 
     /**
-     * Attempt to charge the given cost against the IP's bucket.
-     * Returns array:
-     *   ['ok' => true, 'balance' => float]         — cost deducted
-     *   ['ok' => false, 'balance' => float]        — insufficient points
+     * Spróbuj pobrać koszt z kubełka IP.
+     * Zwraca:
+     *   ['ok' => true,  'balance' => float]  — pobrano
+     *   ['ok' => false, 'balance' => float]  — za mało punktów
      */
     public function charge(string $ip, float $cost): array
     {
-        $state = $this->readState($ip);
-        $state = $this->applyRefill($state);
+        $state = $this->normalize($this->readState($ip));
+
+        // Aktywna blokada — nic nie pobieramy.
+        if ((int) $state['blocked_until'] > time()) {
+            $this->writeState($ip, $state);
+            return ['ok' => false, 'balance' => (float) $state['balance']];
+        }
 
         if ($state['balance'] < $cost) {
             $this->writeState($ip, $state);
@@ -150,17 +191,17 @@ class PointsManager
     }
 
     /**
-     * Refill balance to the starting value (called after successful captcha).
+     * Odnów saldo do wartości startowej i zdejmij ewentualną blokadę
+     * (wywoływane po poprawnym captcha).
      */
     public function refillToStart(string $ip): float
     {
         $start = $this->getStart();
-        $state = ['balance' => $start, 'ts' => time()];
-        $this->writeState($ip, $state);
+        $this->writeState($ip, ['balance' => $start, 'ts' => time(), 'blocked_until' => 0]);
         return $start;
     }
 
-    // ────────────── Internal storage ──────────────
+    // ────────────── Magazyn wewnętrzny ──────────────
 
     protected function getDir(): string
     {
@@ -178,39 +219,77 @@ class PointsManager
 
     protected function readState(string $ip): array
     {
+        $fresh = ['balance' => $this->getStart(), 'ts' => time(), 'blocked_until' => 0];
+
         $file = $this->getFile($ip);
         if (!file_exists($file)) {
-            return ['balance' => $this->getStart(), 'ts' => time()];
+            return $fresh;
         }
 
         $raw = @file_get_contents($file);
         if ($raw === false) {
-            return ['balance' => $this->getStart(), 'ts' => time()];
+            return $fresh;
         }
 
         $data = json_decode($raw, true);
         if (!is_array($data) || !isset($data['balance'], $data['ts'])) {
-            return ['balance' => $this->getStart(), 'ts' => time()];
+            return $fresh;
         }
 
         return [
             'balance' => (float) $data['balance'],
             'ts' => (int) $data['ts'],
+            'blocked_until' => (int) ($data['blocked_until'] ?? 0),
         ];
     }
 
     protected function writeState(string $ip, array $state): void
     {
         $file = $this->getFile($ip);
-        @file_put_contents($file, json_encode([
+
+        // Zapis atomowy: zapisz do pliku tymczasowego i podmień (rename jest atomowy).
+        $payload = json_encode([
             'balance' => (float) $state['balance'],
             'ts' => (int) $state['ts'],
-        ]), LOCK_EX);
+            'blocked_until' => (int) ($state['blocked_until'] ?? 0),
+        ]);
+
+        $tmp = $file . '.' . getmypid() . '.tmp';
+        if (@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
+            if (!@rename($tmp, $file)) {
+                @file_put_contents($file, $payload, LOCK_EX);
+                @unlink($tmp);
+            }
+        }
+
+        $this->maybeCollectGarbage();
     }
 
     /**
-     * Add any pending refill (time elapsed / refill_seconds * refill_amount),
-     * capped at the starting balance.
+     * Wygaśnięcie blokady → reset do pełna; w przeciwnym razie zwykłe odnowienie.
+     * Podczas aktywnej blokady saldo nie jest odnawiane.
+     */
+    protected function normalize(array $state): array
+    {
+        $now = time();
+        $blockedUntil = (int) ($state['blocked_until'] ?? 0);
+
+        if ($blockedUntil > 0 && $now >= $blockedUntil) {
+            // Blokada minęła — czysty start.
+            return ['balance' => $this->getStart(), 'ts' => $now, 'blocked_until' => 0];
+        }
+
+        if ($blockedUntil > $now) {
+            // Wciąż zablokowany — bez odnawiania.
+            return $state;
+        }
+
+        return $this->applyRefill($state);
+    }
+
+    /**
+     * Dolicz zaległe odnowienia (czas / refill_seconds * refill_amount),
+     * z górnym ograniczeniem do salda startowego.
      */
     protected function applyRefill(array $state): array
     {
@@ -237,6 +316,46 @@ class PointsManager
         return [
             'balance' => $newBalance,
             'ts' => (int) $state['ts'] + ($ticks * $refillSeconds),
+            'blocked_until' => (int) ($state['blocked_until'] ?? 0),
         ];
+    }
+
+    /**
+     * Probabilistyczne sprzątanie: co jakiś czas usuwa pliki kubełków, które od
+     * dawna nie były ruszane (są w pełni odnowione i nie są zablokowane), żeby
+     * katalog nie rósł w nieskończoność na ruchu botów. Patrz audyt B4.
+     */
+    protected function maybeCollectGarbage(): void
+    {
+        // ~2% zapisów.
+        if (mt_rand(1, 50) !== 1) {
+            return;
+        }
+
+        // Po tym czasie bezczynności kubełek i tak byłby pełny i odblokowany —
+        // plik nie niesie żadnej informacji, można go skasować.
+        $ttl = max(86400, $this->getBlockSeconds() * 4);
+        $cutoff = time() - $ttl;
+
+        try {
+            $dir = $this->getDir();
+            $files = @glob($dir . '/*.json');
+            if (!is_array($files)) {
+                return;
+            }
+            $deleted = 0;
+            foreach ($files as $file) {
+                $mtime = @filemtime($file);
+                if ($mtime !== false && $mtime < $cutoff) {
+                    @unlink($file);
+                    // Bezpiecznik: nie usuwaj więcej niż 500 plików na przebieg.
+                    if (++$deleted >= 500) {
+                        break;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // sprzątanie jest best-effort — błędy ignorujemy
+        }
     }
 }

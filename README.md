@@ -73,18 +73,25 @@ You can also find the donation option in the extension's admin settings panel.
   - Date interval (Today, 1 day, 1 week, 2 weeks, 1 month, 3 / 6
     months, 1 year)
   - Category (tag) selection
-  - Sort by (Steam-DB-style rating, average rating, rating count,
-    recently rated, creation date, views, and — with
-    `tryhackx/flarum-magnet-link` — magnet clicks total / top magnet /
-    recently clicked)
+  - Sort by — creation date (always available), plus average rating,
+    rating count and recently rated *(with `tryhackx/flarum-topic-rating`)*,
+    views *(with `fof/discussion-views`)*, and magnet clicks total / top
+    magnet / recently clicked *(with `tryhackx/flarum-magnet-link`)*.
+    Options whose extension isn't installed are hidden automatically.
   - Sort direction (ascending / descending)
 - **Content-validation overrides** — override Flarum's built-in title
   and content length limits without patching core:
   - Title length: 1–200 characters (`varchar(200)` column max).
   - Content length: 0–16,000,000 characters (`mediumtext` column max).
   - Each toggle is independent.
-- **reCAPTCHA protection** — optional reCAPTCHA v2 / v3 protection for
-  the stats API endpoint.
+- **Spam protection & rate limiting** — protect the random / search /
+  stats endpoints with optional reCAPTCHA v2 / v3 **and/or** a built-in
+  per-IP **points limiter**. Each visitor has a budget that refills over
+  time; when it runs out you choose what happens: require a reCAPTCHA, or
+  **temporarily block the IP** for a configurable duration — block mode
+  needs no reCAPTCHA at all and shows the visitor a friendly countdown.
+  Client IPs are resolved from Flarum core (proxy-aware), so the limit
+  can't be bypassed with a spoofed `X-Forwarded-For` header.
 - **Collapsible sections** — Section 1 (random buttons + stats) can be
   collapsed by default to save space.
 - **Hide hero banner** — optional toggle to hide Flarum's default hero
@@ -138,7 +145,7 @@ php flarum cache:clear
 | **Tracker Statistics** | Toggle internal stats, configure external OpenTracker source (native or proxy mode), refresh interval. |
 | **Custom Links** | JSON configuration for custom link buttons. |
 | **Content Settings** | Override title and content length limits. |
-| **Security (reCAPTCHA)** | Optional reCAPTCHA v2 / v3 protection for the stats API. |
+| **Security (reCAPTCHA)** | Optional reCAPTCHA v2 / v3, plus the per-IP points rate limiter. Pick what happens when a visitor runs out of points: *Show reCAPTCHA* or *Temporarily block the IP* (with a configurable block duration). |
 
 ### Random buttons format
 

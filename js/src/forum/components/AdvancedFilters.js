@@ -1,6 +1,6 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
-import { preflightCheck, showCaptchaModal, recaptchaRequiredFor } from '../utils/recaptcha';
+import { preflightCheck, showCaptchaModal, guardActiveFor, showRateLimitNotice } from '../utils/recaptcha';
 
 /**
  * AdvancedFilters component.
@@ -80,20 +80,27 @@ export default class AdvancedFilters extends Component {
             '1y': this.transStr('tryhackx-homepage-blocks.forum.interval_1y'),
         };
 
-        const sortOptions = {
-            '0': this.transStr('tryhackx-homepage-blocks.forum.sort_steamdb'),
-            '1': this.transStr('tryhackx-homepage-blocks.forum.sort_avg_rating'),
-            '2': this.transStr('tryhackx-homepage-blocks.forum.sort_rating_count'),
-            '3': this.transStr('tryhackx-homepage-blocks.forum.sort_recently_rated'),
-            '4': this.transStr('tryhackx-homepage-blocks.forum.sort_created'),
-            '5': this.transStr('tryhackx-homepage-blocks.forum.sort_views'),
-        };
+        // Wykrywanie rozszerzeń przez atrybuty forum (serializowane warunkowo w
+        // extend.php / magnet-link). Opcje sortowania pokazujemy TYLKO gdy dane
+        // rozszerzenie jest aktywne — inaczej wybór wywaliłby zapytanie API
+        // (brak kolumny rating_average / view_count / magnet…). Data utworzenia
+        // jest zawsze dostępna (kolumna rdzeniowa).
+        const hasRating = typeof app.forum.attribute('tryhackxHomepageHasRating') !== 'undefined';
+        const hasViews = typeof app.forum.attribute('tryhackxHomepageHasViews') !== 'undefined';
+        const hasMagnet = typeof app.forum.attribute('magnetClickTracking') !== 'undefined';
 
-        // Magnet-click sorts (6/7/8) are provided by tryhackx/flarum-magnet-link.
-        // Only offer them when that extension is enabled — its settings are
-        // serialized to the forum, so `magnetClickTracking` is defined iff it is
-        // active. Otherwise these would be dead options (no backend sort alias).
-        if (typeof app.forum.attribute('magnetClickTracking') !== 'undefined') {
+        const sortOptions = {
+            '4': this.transStr('tryhackx-homepage-blocks.forum.sort_created'),
+        };
+        if (hasRating) {
+            sortOptions['1'] = this.transStr('tryhackx-homepage-blocks.forum.sort_avg_rating');
+            sortOptions['2'] = this.transStr('tryhackx-homepage-blocks.forum.sort_rating_count');
+            sortOptions['3'] = this.transStr('tryhackx-homepage-blocks.forum.sort_recently_rated');
+        }
+        if (hasViews) {
+            sortOptions['5'] = this.transStr('tryhackx-homepage-blocks.forum.sort_views');
+        }
+        if (hasMagnet) {
             sortOptions['6'] = this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_sum');
             sortOptions['7'] = this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_max');
             sortOptions['8'] = this.transStr('tryhackx-homepage-blocks.forum.sort_recently_clicked');
@@ -120,7 +127,7 @@ export default class AdvancedFilters extends Component {
             m('div', { className: 'AdvancedFilters-row' }, [
                 this.renderTextField('filter_title', 'filter_title_placeholder', 'title'),
                 this.renderTextField('filter_user', 'filter_user_placeholder', 'user'),
-                this.renderSelect('filter_rating_interval', ratingIntervalOptions, 'ratingInterval'),
+                hasRating ? this.renderSelect('filter_rating_interval', ratingIntervalOptions, 'ratingInterval') : null,
                 this.renderSelect('filter_sort_by', sortOptions, 'sortBy'),
                 this.renderSelect('filter_date_interval', dateIntervalOptions, 'dateInterval'),
             ]),
@@ -319,17 +326,28 @@ export default class AdvancedFilters extends Component {
     async applyFilters() {
         app.homepageFilters = this.filters;
 
-        // Pre-flight guard: only when scope is actually gated
-        if (recaptchaRequiredFor('search')) {
+        // Pre-flight guard: tylko gdy zakres jest faktycznie chroniony
+        // (reCAPTCHA lub limiter punktowy).
+        if (guardActiveFor('search')) {
             const result = await preflightCheck('search');
-            if (!result.ok && result.captchaRequired) {
-                const token = await showCaptchaModal('search');
-                if (!token) return; // user dismissed
-                const retry = await preflightCheck('search', token);
-                if (!retry.ok) return;
-            } else if (!result.ok) {
-                // Unrelated failure — bail out silently rather than spamming
-                return;
+            if (!result.ok) {
+                if (result.blocked) {
+                    // Tymczasowa blokada IP — pokaż odliczanie, nie wykonuj zapytania.
+                    showRateLimitNotice(result.retryAfter);
+                    return;
+                }
+                if (result.captchaRequired) {
+                    const token = await showCaptchaModal('search');
+                    if (!token) return; // użytkownik zamknął
+                    const retry = await preflightCheck('search', token);
+                    if (!retry.ok) {
+                        if (retry.blocked) showRateLimitNotice(retry.retryAfter);
+                        return;
+                    }
+                } else {
+                    // Niepowiązany błąd — wyjdź cicho zamiast spamować.
+                    return;
+                }
             }
         }
 
@@ -358,8 +376,9 @@ export default class AdvancedFilters extends Component {
             filter.tag = tags;
         }
 
-        // Rating interval: custom RatingFilter
-        if (this.filters.ratingInterval !== '0') {
+        // Rating interval: custom RatingFilter — tylko gdy topic-rating aktywne.
+        const hasRating = typeof app.forum.attribute('tryhackxHomepageHasRating') !== 'undefined';
+        if (hasRating && this.filters.ratingInterval !== '0') {
             filter.ratingInterval = this.filters.ratingInterval;
         }
 
@@ -371,7 +390,6 @@ export default class AdvancedFilters extends Component {
         // Sort mapping: UI index → { desc: sortKey, asc: sortKey }
         // Sort keys must match aliases registered in extend.php and DiscussionListState.sortMap()
         const sortMap = {
-            '0': { desc: 'most_rated',         asc: 'least_rated' },          // Steam DB → use rating as fallback
             '1': { desc: 'most_rated',         asc: 'least_rated' },          // Avg rating
             '2': { desc: 'most_rating_count',  asc: 'least_rating_count' },   // Number of ratings
             '3': { desc: 'recently_rated',     asc: 'oldest_rated' },         // Recently rated
@@ -385,7 +403,18 @@ export default class AdvancedFilters extends Component {
             '8': { desc: 'recently_magnet_clicked',   asc: 'oldest_magnet_clicked' },      // Last clicked (time)
         };
 
-        const sortEntry = sortMap[this.filters.sortBy] || sortMap['4'];
+        // Zabezpieczenie: jeśli zapisany wybór dotyczy sortowania z rozszerzenia,
+        // którego nie ma, wróć do daty utworzenia (inaczej API zwróci błąd).
+        const hasViews = typeof app.forum.attribute('tryhackxHomepageHasViews') !== 'undefined';
+        const hasMagnet = typeof app.forum.attribute('magnetClickTracking') !== 'undefined';
+        let sortBy = this.filters.sortBy;
+        if (((['0', '1', '2', '3'].indexOf(sortBy) !== -1) && !hasRating) ||
+            (sortBy === '5' && !hasViews) ||
+            ((['6', '7', '8'].indexOf(sortBy) !== -1) && !hasMagnet)) {
+            sortBy = '4';
+        }
+
+        const sortEntry = sortMap[sortBy] || sortMap['4'];
         const sortKey = this.filters.sortDirection === 'asc' ? sortEntry.asc : sortEntry.desc;
 
         // Build the params object that Flarum's DiscussionListState expects

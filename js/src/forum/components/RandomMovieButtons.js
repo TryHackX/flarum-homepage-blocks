@@ -1,7 +1,7 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
-import { appendRecaptchaToken, showCaptchaModal, recaptchaRequiredFor } from '../utils/recaptcha';
+import { appendRecaptchaToken, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse, showRateLimitNotice } from '../utils/recaptcha';
 
 export default class RandomMovieButtons extends Component {
     oninit(vnode) {
@@ -74,7 +74,11 @@ export default class RandomMovieButtons extends Component {
             m.redraw();
         } catch (e) {
             this.loading[index] = false;
-            app.alerts.show({ type: 'error' }, app.translator.trans('tryhackx-homepage-blocks.forum.random_not_found'));
+            // Przy blokadzie IP powiadomienie z odliczaniem pokazał już performRequest
+            // — nie dubluj komunikatem „nie znaleziono".
+            if (!isRateLimitedResponse(e && e.status, e && e.response)) {
+                app.alerts.show({ type: 'error' }, app.translator.trans('tryhackx-homepage-blocks.forum.random_not_found'));
+            }
             m.redraw();
         }
     }
@@ -94,9 +98,14 @@ export default class RandomMovieButtons extends Component {
         try {
             return await app.request({ method: 'GET', url });
         } catch (err) {
-            // Flarum throws on non-2xx; inspect response for captcha_required
+            // Flarum throws on non-2xx; inspect response
             const status = err && err.status;
             const body = err && err.response;
+            if (isRateLimitedResponse(status, body)) {
+                // Tymczasowa blokada IP — pokaż profesjonalne odliczanie.
+                showRateLimitNotice(body && body.retry_after);
+                throw err;
+            }
             if (status === 403 && body && (body.captcha_required || body.error === 'captcha_required')) {
                 if (!recaptchaRequiredFor('random')) throw err;
                 const freshToken = await showCaptchaModal('random');

@@ -6,7 +6,7 @@ use Flarum\Api\Resource\PostResource;
 use Flarum\Api\Sort\SortColumn;
 use Flarum\Discussion\Search\DiscussionSearcher;
 use Flarum\Search\Database\DatabaseSearchDriver;
-use Flarum\Settings\SettingsRepositoryInterface;
+use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Api\Controller\CheckPointsController;
 use TryHackX\HomepageBlocks\Api\Controller\RandomDiscussionController;
 use TryHackX\HomepageBlocks\Api\Controller\TrackerStatsController;
@@ -14,49 +14,6 @@ use TryHackX\HomepageBlocks\Search\RatingFilter;
 use TryHackX\HomepageBlocks\Search\DateIntervalFilter;
 use TryHackX\HomepageBlocks\Search\TitleFilter;
 use TryHackX\HomepageBlocks\Search\UserFilter;
-
-/**
- * Helper: replace min/max validation rules on a field using Reflection.
- * Flarum's Schema fields accumulate rules via rule(), and there's no public way
- * to remove existing rules. We use Reflection to filter and replace them safely.
- *
- * Wrapped in `function_exists` because Flarum can load this extend.php twice
- * in the same request (notably when the extension is disabled / enabled from
- * the admin, which re-evaluates the extender list). Without the guard PHP
- * would fatal with "Cannot redeclare function replaceMinMax()" and the admin
- * UI would show a generic "Oops" alert — even though the disable itself had
- * already succeeded server-side.
- */
-if (!function_exists('replaceMinMax')) {
-    function replaceMinMax($field, ?int $min, ?int $max): mixed
-    {
-        try {
-            // Access the protected $rules array
-            $ref = new ReflectionProperty($field, 'rules');
-            $rules = $ref->getValue($field);
-
-            // Filter out existing min: and max: rules
-            $rules = array_filter($rules, function ($rule) {
-                $r = $rule['rule'] ?? '';
-                return !str_starts_with($r, 'min:') && !str_starts_with($r, 'max:');
-            });
-
-            $ref->setValue($field, array_values($rules));
-
-            // Add new rules
-            if ($min !== null) {
-                $field->minLength($min);
-            }
-            if ($max !== null) {
-                $field->maxLength($max);
-            }
-        } catch (\Throwable $e) {
-            // If reflection fails, don't break anything — just return the original field
-        }
-
-        return $field;
-    }
-}
 
 return [
     (new Extend\Frontend('forum'))
@@ -117,22 +74,16 @@ return [
         ->serializeToForum('tryhackx-homepage-blocks.recaptcha_skip_authenticated', 'tryhackx-homepage-blocks.recaptcha_skip_authenticated', function ($value) {
             return $value === null ? true : (bool) $value;
         })
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_v3_threshold', 'tryhackx-homepage-blocks.recaptcha_v3_threshold')
         ->serializeToForum('tryhackx-homepage-blocks.recaptcha_on_search', 'tryhackx-homepage-blocks.recaptcha_on_search', function ($value) {
             return $value === null ? true : (bool) $value;
         })
         ->serializeToForum('tryhackx-homepage-blocks.search_debounce_ms', 'tryhackx-homepage-blocks.search_debounce_ms')
+        // Tylko sam fakt włączenia limitera trafia do frontendu (decyduje, czy robić
+        // pre-flight). Ekonomia punktów (start/refill/koszty/blokada) jest WYŁĄCZNIE
+        // serwerowa — nie ujawniamy jej klientom (audyt A4).
         ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_enabled', 'tryhackx-homepage-blocks.recaptcha_points_enabled', function ($value) {
             return (bool) $value;
         })
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_start', 'tryhackx-homepage-blocks.recaptcha_points_start')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_refill_seconds', 'tryhackx-homepage-blocks.recaptcha_points_refill_seconds')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_refill_amount', 'tryhackx-homepage-blocks.recaptcha_points_refill_amount')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_guest_extra', 'tryhackx-homepage-blocks.recaptcha_points_guest_extra')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_cost_random', 'tryhackx-homepage-blocks.recaptcha_points_cost_random')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_cost_search', 'tryhackx-homepage-blocks.recaptcha_points_cost_search')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_cost_stats', 'tryhackx-homepage-blocks.recaptcha_points_cost_stats')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_cost_external_stats', 'tryhackx-homepage-blocks.recaptcha_points_cost_external_stats')
         ->serializeToForum('tryhackx-homepage-blocks.hide_hero', 'tryhackx-homepage-blocks.hide_hero', function ($value) {
             return (bool) $value;
         })
@@ -147,56 +98,40 @@ return [
         ->serializeToForum('tryhackx-homepage-blocks.category_label', 'tryhackx-homepage-blocks.category_label')
         ->serializeToForum('tryhackx-homepage-blocks.resolution_label', 'tryhackx-homepage-blocks.resolution_label'),
 
+    // ── Filtry oparte na rdzeniowych kolumnach (zawsze dostępne) ──
     (new Extend\SearchDriver(DatabaseSearchDriver::class))
-        ->addFilter(DiscussionSearcher::class, RatingFilter::class)
         ->addFilter(DiscussionSearcher::class, DateIntervalFilter::class)
         ->addFilter(DiscussionSearcher::class, TitleFilter::class)
         ->addFilter(DiscussionSearcher::class, UserFilter::class),
 
-    // ── Discussion title length override ──
-    (new Extend\ApiResource(DiscussionResource::class))
-        ->sorts(fn () => [
-            SortColumn::make('rating_average')
-                ->ascendingAlias('least_rated')
-                ->descendingAlias('most_rated'),
-            SortColumn::make('rating_count')
-                ->descendingAlias('most_rating_count')
-                ->ascendingAlias('least_rating_count'),
-            SortColumn::make('last_rated_at')
-                ->descendingAlias('recently_rated')
-                ->ascendingAlias('oldest_rated'),
+    // ── Sortowania/filtry zależne od innych rozszerzeń ──
+    // Rejestrujemy je TYLKO gdy dane rozszerzenie jest włączone, więc na forum bez
+    // topic-rating / discussion-views użycie ich nie wywróci zapytania (audyt B5).
+    // Wystawiamy też flagi do frontendu, by ukrywał niedostępne opcje sortowania.
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('tryhackx-topic-rating', fn () => [
+            (new Extend\ApiResource(DiscussionResource::class))
+                ->sorts(fn () => [
+                    SortColumn::make('rating_average'),
+                    SortColumn::make('rating_count'),
+                    SortColumn::make('last_rated_at'),
+                ]),
+            (new Extend\SearchDriver(DatabaseSearchDriver::class))
+                ->addFilter(DiscussionSearcher::class, RatingFilter::class),
+            (new Extend\Settings())
+                ->serializeToForum('tryhackxHomepageHasRating', 'tryhackx-homepage-blocks.recaptcha_points_enabled', fn () => true),
         ])
-        ->field('title', function ($field) {
-            $settings = resolve(SettingsRepositoryInterface::class);
-            if (!(bool) $settings->get('tryhackx-homepage-blocks.title_length_enabled')) {
-                return $field;
-            }
-            // Clamp: min >= 1, max <= 200 (varchar(200) column)
-            $min = max(1, (int) ($settings->get('tryhackx-homepage-blocks.title_min_length') ?: 3));
-            $max = min(200, max($min, (int) ($settings->get('tryhackx-homepage-blocks.title_max_length') ?: 200)));
-            return replaceMinMax($field, $min, $max);
-        })
-        ->field('content', function ($field) {
-            // Discussion content field (used when creating a discussion)
-            $settings = resolve(SettingsRepositoryInterface::class);
-            if (!(bool) $settings->get('tryhackx-homepage-blocks.content_length_enabled')) {
-                return $field;
-            }
-            // Clamp: min >= 0, max <= 16000000 (mediumtext column)
-            $min = max(0, (int) ($settings->get('tryhackx-homepage-blocks.content_min_length') ?: 1));
-            $max = min(16000000, max($min, (int) ($settings->get('tryhackx-homepage-blocks.content_max_length') ?: 500000)));
-            return replaceMinMax($field, $min, $max);
-        }),
+        ->whenExtensionEnabled('fof-discussion-views', fn () => [
+            (new Extend\Settings())
+                ->serializeToForum('tryhackxHomepageHasViews', 'tryhackx-homepage-blocks.recaptcha_points_enabled', fn () => true),
+        ]),
 
-    // ── Post content length override ──
+    // ── Nadpisanie długości tytułu/treści (dyskusje) ──
+    (new Extend\ApiResource(DiscussionResource::class))
+        ->field('title', fn ($field) => resolve(FieldLengthModifier::class)->applyTitle($field))
+        ->field('content', fn ($field) => resolve(FieldLengthModifier::class)->applyContent($field)),
+
+    // ── Nadpisanie długości treści (posty) ──
     (new Extend\ApiResource(PostResource::class))
-        ->field('content', function ($field) {
-            $settings = resolve(SettingsRepositoryInterface::class);
-            if (!(bool) $settings->get('tryhackx-homepage-blocks.content_length_enabled')) {
-                return $field;
-            }
-            $min = max(0, (int) ($settings->get('tryhackx-homepage-blocks.content_min_length') ?: 1));
-            $max = min(16000000, max($min, (int) ($settings->get('tryhackx-homepage-blocks.content_max_length') ?: 500000)));
-            return replaceMinMax($field, $min, $max);
-        }),
+        ->field('content', fn ($field) => resolve(FieldLengthModifier::class)->applyContent($field)),
 ];

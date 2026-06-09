@@ -1,7 +1,7 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
-import { appendRecaptchaToken, showCaptchaModal, recaptchaRequiredFor } from '../utils/recaptcha';
+import { appendRecaptchaToken, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse } from '../utils/recaptcha';
 
 /**
  * TrackerStats component.
@@ -236,6 +236,15 @@ export default class TrackerStats extends Component {
                 };
             }
         } catch (e) {
+            if (isRateLimitedResponse(e && e.status, e && e.response)) {
+                // Blokada IP (tryb klasyczny) — wycofaj się do końca blokady
+                // zamiast odpytywać w pętli.
+                const ra = (e.response && (e.response.retry_after ?? e.response.retryAfter)) || 30;
+                app.homepageStatsCache.externalLoaded = true;
+                m.redraw();
+                if (!this.destroyed) this.scheduleRefresh(Math.max(1000, ra * 1000));
+                return;
+            }
             console.error('[HomepageBlocks] Failed to load external stats:', e);
         }
 

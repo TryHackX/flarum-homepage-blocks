@@ -2,7 +2,6 @@
 
 namespace TryHackX\HomepageBlocks\Search;
 
-use Flarum\Search\Database\DatabaseSearchState;
 use Flarum\Search\Filter\FilterInterface;
 use Flarum\Search\SearchState;
 use Flarum\Search\ValidateFilterTrait;
@@ -34,14 +33,13 @@ class UserFilter implements FilterInterface
         // Escape LIKE wildcards in user input
         $escaped = str_replace(['%', '_'], ['\\%', '\\_'], $value);
 
-        $query = $state->getQuery();
-
-        // Join users table to search by username
-        $query->join('users', 'users.id', '=', 'discussions.user_id')
-              ->where(
-                  'users.username',
-                  $negate ? 'not like' : 'like',
-                  '%' . $escaped . '%'
-              );
+        // whereExists zamiast join('users') — unika błędu „Not unique table 'users'",
+        // gdyby inny filtr/searcher też dołączył tabelę users (audyt C7).
+        $op = $negate ? 'not like' : 'like';
+        $state->getQuery()->whereExists(function ($q) use ($op, $escaped) {
+            $q->from('users')
+              ->whereColumn('users.id', 'discussions.user_id')
+              ->where('users.username', $op, '%' . $escaped . '%');
+        });
     }
 }

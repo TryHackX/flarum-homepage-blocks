@@ -5,12 +5,15 @@ namespace TryHackX\HomepageBlocks\Search;
 use Carbon\Carbon;
 use Flarum\Search\Filter\FilterInterface;
 use Flarum\Search\SearchState;
+use Flarum\Search\ValidateFilterTrait;
 
 /**
  * Filters discussions by creation date interval.
  */
 class DateIntervalFilter implements FilterInterface
 {
+    use ValidateFilterTrait;
+
     public function getFilterKey(): string
     {
         return 'dateInterval';
@@ -18,7 +21,7 @@ class DateIntervalFilter implements FilterInterface
 
     public function filter(SearchState $state, string|array $value, bool $negate): void
     {
-        $date = match ((string) $value) {
+        $date = match ($this->asString($value)) {
             'today' => Carbon::today(),
             '1d' => Carbon::now()->subDay(),
             '1w' => Carbon::now()->subWeek(),
