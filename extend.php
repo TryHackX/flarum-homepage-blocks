@@ -57,6 +57,7 @@ return [
         ->serializeToForum('tryhackx-homepage-blocks.external_stats_url', 'tryhackx-homepage-blocks.external_stats_url')
         ->serializeToForum('tryhackx-homepage-blocks.custom_links', 'tryhackx-homepage-blocks.custom_links')
         ->serializeToForum('tryhackx-homepage-blocks.custom_links_title', 'tryhackx-homepage-blocks.custom_links_title')
+        ->serializeToForum('tryhackx-homepage-blocks.custom_links_css', 'tryhackx-homepage-blocks.custom_links_css')
         ->serializeToForum('tryhackx-homepage-blocks.recaptcha_enabled', 'tryhackx-homepage-blocks.recaptcha_enabled', function ($value) {
             return (bool) $value;
         })

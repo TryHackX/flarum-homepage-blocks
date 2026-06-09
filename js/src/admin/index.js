@@ -261,6 +261,15 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                 }),
             ]);
         })
+        .registerSetting(
+            textareaSetting(
+                'custom_links_css',
+                app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_css'),
+                app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_css_help'),
+                '.glow-on-hover { … }\n@keyframes glowing { … }',
+                10
+            )
+        )
 
         // ──────────── CONTENT SETTINGS ────────────
         .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_content')))

@@ -84,65 +84,88 @@
     }
 }
 
-// Custom links editor (rows of name / url / colour / new-tab)
+// Custom links editor — one card per link (fields row + meta/actions row)
 .HomepageBlocks-linksEditor {
-    margin-top: 6px;
+    margin-top: 8px;
+    max-width: 720px;
 }
 
 .HomepageBlocks-linkRow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-    flex-wrap: wrap;
+    border: 1px solid var(--control-bg);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .HomepageBlocks-linkRow-fields {
     display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.HomepageBlocks-linkField {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+
+    > label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted-color);
+    }
+
+    .FormControl {
+        width: 100%;
+    }
+}
+
+.HomepageBlocks-linkName  { flex: 1 1 140px; min-width: 110px; }
+.HomepageBlocks-linkUrl   { flex: 2 1 220px; min-width: 150px; }
+.HomepageBlocks-linkClass { flex: 1 1 140px; min-width: 110px; }
+
+.HomepageBlocks-linkRow-meta {
+    display: flex;
     align-items: center;
-    gap: 8px;
-    flex: 1 1 auto;
+    gap: 16px;
     flex-wrap: wrap;
 }
 
-.HomepageBlocks-linkName {
-    flex: 1 1 150px;
-    min-width: 110px;
-}
-
-.HomepageBlocks-linkUrl {
-    flex: 2 1 220px;
-    min-width: 150px;
-}
-
 .HomepageBlocks-linkColor {
-    width: 38px;
-    height: 36px;
-    padding: 2px;
-    border: 1px solid var(--control-bg);
-    border-radius: 4px;
-    background: var(--control-bg);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
     cursor: pointer;
-    flex: 0 0 auto;
+
+    input[type='color'] {
+        width: 34px;
+        height: 30px;
+        padding: 2px;
+        border: 1px solid var(--control-bg);
+        border-radius: 4px;
+        background: var(--control-bg);
+        cursor: pointer;
+    }
 }
 
 .HomepageBlocks-linkExternal {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    flex: 0 0 auto;
-    cursor: pointer;
+    gap: 6px;
     margin: 0;
+    cursor: pointer;
 }
 
 .HomepageBlocks-linkRow-actions {
+    margin-left: auto;
     display: inline-flex;
     gap: 4px;
-    flex: 0 0 auto;
 }
 
 .HomepageBlocks-linksAdd {
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 .HomepageBlocks-support {

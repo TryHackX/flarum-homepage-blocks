@@ -63,10 +63,11 @@ You can also find the donation option in the extension's admin settings panel.
     - **Proxy** — JSON proxy URL for environments where direct access
       isn't possible.
   - Configurable refresh interval (1–300 s).
-- **Custom links bar** — add colour-coded link buttons in Section 1 from a
-  simple admin editor (name, URL, colour, open-in-new-tab, drag-free reorder)
-  with an optional section heading. URLs are sanitised (no `javascript:` /
-  `data:` schemes).
+- **Custom links bar** — add link buttons in Section 1 from a simple admin
+  editor (name, URL, colour, open-in-new-tab, reorder) with an optional section
+  heading. Style them freely: give a link a **CSS class** and paste your rules
+  into the **Custom CSS** box (e.g. a glow-on-hover button). URLs and classes are
+  sanitised (no `javascript:` / `data:`).
 - **Advanced discussion filters** — filter bar for the discussion list
   with 7 filter types:
   - Title search

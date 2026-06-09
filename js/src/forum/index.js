@@ -43,12 +43,37 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
         }
     }
 
+    // Inject admin-provided custom CSS (e.g. for fancy link buttons) into <head>.
+    // textContent (not innerHTML) is used, so a stray "</style>" can't break out.
+    function injectCustomCss() {
+        try {
+            if (!document || !document.head) return;
+            let css = '';
+            try {
+                css = (app.forum && app.forum.attribute('tryhackx-homepage-blocks.custom_links_css')) || '';
+            } catch (e) {}
+            let el = document.getElementById('tryhackx-homepage-blocks-css');
+            if (!css) {
+                if (el) el.remove();
+                return;
+            }
+            if (!el) {
+                el = document.createElement('style');
+                el.id = 'tryhackx-homepage-blocks-css';
+                document.head.appendChild(el);
+            }
+            if (el.textContent !== css) el.textContent = css;
+        } catch (e) {}
+    }
+
     // Apply immediately (may default to light if app.forum not ready yet)
     applyTheme();
+    injectCustomCss();
 
     // Reapply when IndexPage renders (app.forum is guaranteed to be available)
     extend(IndexPage.prototype, 'oncreate', function () {
         applyTheme();
+        injectCustomCss();
     });
 
     // Listen for OS theme changes when in auto mode

@@ -32,9 +32,12 @@ that already use reCAPTCHA + points keep their current behaviour (the new
   (stricter). During a block points never refill and the block is never lifted
   early — it always lasts its full configured duration.
 - **Friendly editor for the Section 1 links** (replaces the raw-JSON textarea):
-  add / remove / reorder link rows with a name, URL, colour and "open in a new
-  tab" toggle, plus an optional **links section title** shown above them. The
-  underlying `custom_links` JSON format is unchanged (existing links keep working).
+  add / remove / reorder link rows — laid out as cards — with a name, URL,
+  colour, an "open in a new tab" toggle and an optional **CSS class** per link,
+  plus an optional **links section title** and a **Custom CSS** box. You can
+  turn a link into a fancy button (e.g. a glow-on-hover button) by pasting your
+  CSS into the box and putting the class name on the link. The underlying
+  `custom_links` JSON format is unchanged (existing links keep working).
 
 ### Security
 - **IP rate limiting can no longer be bypassed with a spoofed header.** Per-IP
@@ -54,8 +57,9 @@ that already use reCAPTCHA + points keep their current behaviour (the new
   is **no longer serialised into the public forum payload** — only the on/off
   flag the frontend needs is exposed.
 - **Custom-link URLs are sanitised before rendering** — `javascript:` / `data:`
-  and other non-http(s) schemes are dropped, so a Section 1 link can't become a
-  stored-XSS vector for visitors.
+  and other non-http(s) schemes are dropped; the per-link CSS class is reduced to
+  class-name characters; and the Custom CSS is injected via `textContent` (never
+  `innerHTML`), so a Section 1 link / style entry can't become a stored-XSS vector.
 
 ### Performance & robustness
 - **External stats no longer cause a thundering herd.** The cold-cache fetch is

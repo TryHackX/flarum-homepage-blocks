@@ -5,15 +5,16 @@ import app from 'flarum/admin/app';
 const T = 'tryhackx-homepage-blocks.admin.settings.';
 
 /**
- * Przyjazny edytor własnych linków Sekcji 1 — wiersze zamiast surowego JSON.
+ * Przyjazny edytor własnych linków Sekcji 1 — karty zamiast surowego JSON.
  *
- * Każdy link: { label, url, color, external }. Przechowywany dalej jako JSON
- * w ustawieniu `custom_links` (zgodność wsteczna z poprzednim polem tekstowym
- * i z frontendowym komponentem CustomLinks).
+ * Każdy link: { label, url, color, external, className }. Przechowywany dalej
+ * jako JSON w ustawieniu `custom_links` (zgodność wsteczna z poprzednim polem
+ * tekstowym i z frontendowym komponentem CustomLinks). `className` pozwala
+ * przypiąć własną klasę CSS (np. glow-on-hover) zdefiniowaną w polu „Własny CSS".
  *
  * Props:
- *   - value:    () => string   — getter aktualnego JSON-a ustawienia
- *   - onchange: (json) => void  — zapis JSON-a (oznacza ustawienie jako zmienione)
+ *   - value:    () => string    — getter aktualnego JSON-a ustawienia
+ *   - onchange: (json) => void   — zapis JSON-a (oznacza ustawienie jako zmienione)
  */
 export default class LinksEditor extends Component {
     oninit(vnode) {
@@ -30,6 +31,7 @@ export default class LinksEditor extends Component {
                 url: typeof l.url === 'string' ? l.url : '',
                 color: typeof l.color === 'string' ? l.color : '#e74c3c',
                 external: !!l.external,
+                className: typeof l.className === 'string' ? l.className : '',
             }));
         } catch (e) {
             return [];
@@ -54,7 +56,7 @@ export default class LinksEditor extends Component {
                 className: 'Button HomepageBlocks-linksAdd',
                 icon: 'fas fa-plus',
                 onclick: () => {
-                    this.links.push({ label: '', url: '', color: '#e74c3c', external: true });
+                    this.links.push({ label: '', url: '', color: '#e74c3c', external: true, className: '' });
                     this.commit();
                 },
             }, this.trans('custom_links_add')),
@@ -64,58 +66,75 @@ export default class LinksEditor extends Component {
     renderRow(link, i) {
         return m('div', { className: 'HomepageBlocks-linkRow', key: i }, [
             m('div', { className: 'HomepageBlocks-linkRow-fields' }, [
-                m('input', {
+                this.field('HomepageBlocks-linkName', 'custom_links_name', m('input', {
                     type: 'text',
-                    className: 'FormControl HomepageBlocks-linkName',
+                    className: 'FormControl',
                     placeholder: this.trans('custom_links_name'),
                     value: link.label,
                     oninput: (e) => { link.label = e.target.value; this.commit(); },
-                }),
-                m('input', {
+                })),
+                this.field('HomepageBlocks-linkUrl', 'custom_links_url', m('input', {
                     type: 'url',
-                    className: 'FormControl HomepageBlocks-linkUrl',
+                    className: 'FormControl',
                     placeholder: this.trans('custom_links_url'),
                     value: link.url,
                     oninput: (e) => { link.url = e.target.value; this.commit(); },
-                }),
-                m('input', {
-                    type: 'color',
-                    className: 'HomepageBlocks-linkColor',
-                    title: this.trans('custom_links_color'),
-                    value: /^#[0-9a-fA-F]{6}$/.test(link.color) ? link.color : '#e74c3c',
-                    oninput: (e) => { link.color = e.target.value; this.commit(); },
-                }),
-                m('label', { className: 'HomepageBlocks-linkExternal', title: this.trans('custom_links_newtab') }, [
+                })),
+                this.field('HomepageBlocks-linkClass', 'custom_links_class', m('input', {
+                    type: 'text',
+                    className: 'FormControl',
+                    placeholder: this.trans('custom_links_class_placeholder'),
+                    value: link.className,
+                    oninput: (e) => { link.className = e.target.value; this.commit(); },
+                })),
+            ]),
+            m('div', { className: 'HomepageBlocks-linkRow-meta' }, [
+                m('label', { className: 'HomepageBlocks-linkColor' }, [
+                    m('span', this.trans('custom_links_color')),
+                    m('input', {
+                        type: 'color',
+                        value: /^#[0-9a-fA-F]{6}$/.test(link.color) ? link.color : '#e74c3c',
+                        oninput: (e) => { link.color = e.target.value; this.commit(); },
+                    }),
+                ]),
+                m('label', { className: 'HomepageBlocks-linkExternal' }, [
                     m('input', {
                         type: 'checkbox',
                         checked: link.external,
                         onchange: (e) => { link.external = e.target.checked; this.commit(); },
                     }),
-                    m('i', { className: 'fas fa-external-link-alt' }),
+                    m('span', this.trans('custom_links_newtab')),
+                ]),
+                m('div', { className: 'HomepageBlocks-linkRow-actions' }, [
+                    m(Button, {
+                        className: 'Button Button--icon',
+                        icon: 'fas fa-arrow-up',
+                        disabled: i === 0,
+                        title: this.trans('custom_links_move_up'),
+                        onclick: () => this.move(i, -1),
+                    }),
+                    m(Button, {
+                        className: 'Button Button--icon',
+                        icon: 'fas fa-arrow-down',
+                        disabled: i === this.links.length - 1,
+                        title: this.trans('custom_links_move_down'),
+                        onclick: () => this.move(i, 1),
+                    }),
+                    m(Button, {
+                        className: 'Button Button--icon Button--danger',
+                        icon: 'fas fa-trash',
+                        title: this.trans('custom_links_remove'),
+                        onclick: () => { this.links.splice(i, 1); this.commit(); },
+                    }),
                 ]),
             ]),
-            m('div', { className: 'HomepageBlocks-linkRow-actions' }, [
-                m(Button, {
-                    className: 'Button Button--icon HomepageBlocks-linkMove',
-                    icon: 'fas fa-arrow-up',
-                    disabled: i === 0,
-                    title: this.trans('custom_links_move_up'),
-                    onclick: () => { this.move(i, -1); },
-                }),
-                m(Button, {
-                    className: 'Button Button--icon HomepageBlocks-linkMove',
-                    icon: 'fas fa-arrow-down',
-                    disabled: i === this.links.length - 1,
-                    title: this.trans('custom_links_move_down'),
-                    onclick: () => { this.move(i, 1); },
-                }),
-                m(Button, {
-                    className: 'Button Button--icon Button--danger HomepageBlocks-linkRemove',
-                    icon: 'fas fa-trash',
-                    title: this.trans('custom_links_remove'),
-                    onclick: () => { this.links.splice(i, 1); this.commit(); },
-                }),
-            ]),
+        ]);
+    }
+
+    field(className, labelKey, input) {
+        return m('div', { className: 'HomepageBlocks-linkField ' + className }, [
+            m('label', this.trans(labelKey)),
+            input,
         ]);
     }
 

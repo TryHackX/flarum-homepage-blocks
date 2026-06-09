@@ -18,6 +18,16 @@ function safeHref(url) {
     return u;
 }
 
+/**
+ * Sanityzuje nazwę(y) klasy CSS przypiętej do linku — tylko litery, cyfry,
+ * `-`, `_` i spacje (oddzielanie wielu klas). Odrzuca cudzysłowy / nawiasy itp.,
+ * żeby wartość z ustawień nie mogła wyłamać się z atrybutu class.
+ */
+function safeClass(c) {
+    if (typeof c !== 'string') return '';
+    return c.replace(/[^A-Za-z0-9_\- ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
 export default class CustomLinks extends Component {
     view() {
         const linksJson = app.forum.attribute('tryhackx-homepage-blocks.custom_links');
@@ -30,7 +40,13 @@ export default class CustomLinks extends Component {
 
         // Pomijaj puste wiersze i niebezpieczne URL-e (np. javascript:).
         links = links
-            .map((l) => (l ? { label: l.label, color: l.color, external: !!l.external, href: safeHref(l.url) } : null))
+            .map((l) => (l ? {
+                label: l.label,
+                color: l.color,
+                external: !!l.external,
+                href: safeHref(l.url),
+                className: safeClass(l.className),
+            } : null))
             .filter((l) => l && l.href && l.label);
         if (!links.length) return null;
 
@@ -47,8 +63,8 @@ export default class CustomLinks extends Component {
                     {links.map((link) => (
                         <a
                             href={link.href}
-                            className="CustomLinks-link"
-                            style={{ color: link.color || '#e74c3c' }}
+                            className={'CustomLinks-link' + (link.className ? ' ' + link.className : '')}
+                            style={link.className ? undefined : { color: link.color || '#e74c3c' }}
                             target={link.external ? '_blank' : undefined}
                             rel={link.external ? 'noopener noreferrer' : undefined}
                         >
