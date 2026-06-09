@@ -1,6 +1,23 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 
+/**
+ * Bezpieczny href albo null. Dopuszcza http(s), mailto oraz ścieżki względne /
+ * kotwice; odrzuca niebezpieczne schematy (javascript:, data:, vbscript: …),
+ * żeby link z ustawień admina nie stał się wektorem XSS dla odwiedzających.
+ */
+function safeHref(url) {
+    if (typeof url !== 'string') return null;
+    const u = url.trim();
+    if (!u) return null;
+    const m = u.match(/^([a-z][a-z0-9+.-]*):/i);
+    if (m) {
+        const scheme = m[1].toLowerCase();
+        if (scheme !== 'http' && scheme !== 'https' && scheme !== 'mailto') return null;
+    }
+    return u;
+}
+
 export default class CustomLinks extends Component {
     view() {
         const linksJson = app.forum.attribute('tryhackx-homepage-blocks.custom_links');
@@ -11,21 +28,34 @@ export default class CustomLinks extends Component {
             links = [];
         }
 
+        // Pomijaj puste wiersze i niebezpieczne URL-e (np. javascript:).
+        links = links
+            .map((l) => (l ? { label: l.label, color: l.color, external: !!l.external, href: safeHref(l.url) } : null))
+            .filter((l) => l && l.href && l.label);
         if (!links.length) return null;
+
+        const title = app.forum.attribute('tryhackx-homepage-blocks.custom_links_title');
 
         return (
             <div className="CustomLinks">
-                {links.map((link) => (
-                    <a
-                        href={link.url}
-                        className="CustomLinks-link"
-                        style={{ color: link.color || '#e74c3c' }}
-                        target={link.external ? '_blank' : undefined}
-                        rel={link.external ? 'noopener noreferrer' : undefined}
-                    >
-                        <strong>{link.label}</strong>
-                    </a>
-                ))}
+                {title ? (
+                    <div className="CustomLinks-title">
+                        <strong>{title}</strong>
+                    </div>
+                ) : null}
+                <div className="CustomLinks-list">
+                    {links.map((link) => (
+                        <a
+                            href={link.href}
+                            className="CustomLinks-link"
+                            style={{ color: link.color || '#e74c3c' }}
+                            target={link.external ? '_blank' : undefined}
+                            rel={link.external ? 'noopener noreferrer' : undefined}
+                        >
+                            <strong>{link.label}</strong>
+                        </a>
+                    ))}
+                </div>
             </div>
         );
     }

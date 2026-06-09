@@ -31,6 +31,10 @@ that already use reCAPTCHA + points keep their current behaviour (the new
   back **full** (forgiving, default) or **empty and refilling from zero**
   (stricter). During a block points never refill and the block is never lifted
   early — it always lasts its full configured duration.
+- **Friendly editor for the Section 1 links** (replaces the raw-JSON textarea):
+  add / remove / reorder link rows with a name, URL, colour and "open in a new
+  tab" toggle, plus an optional **links section title** shown above them. The
+  underlying `custom_links` JSON format is unchanged (existing links keep working).
 
 ### Security
 - **IP rate limiting can no longer be bypassed with a spoofed header.** Per-IP
@@ -49,6 +53,9 @@ that already use reCAPTCHA + points keep their current behaviour (the new
 - The points economy (starting balance, refill, action costs, block duration)
   is **no longer serialised into the public forum payload** — only the on/off
   flag the frontend needs is exposed.
+- **Custom-link URLs are sanitised before rendering** — `javascript:` / `data:`
+  and other non-http(s) schemes are dropped, so a Section 1 link can't become a
+  stored-XSS vector for visitors.
 
 ### Performance & robustness
 - **External stats no longer cause a thundering herd.** The cold-cache fetch is
@@ -81,12 +88,16 @@ that already use reCAPTCHA + points keep their current behaviour (the new
   gambits). Interval filters now tolerate array input.
 - `composer.json`: `flarum/tags` pinned to `^2.0.0-rc.1` (was `*`);
   `minimum-stability: dev` removed.
+- The admin points-limiter settings were rebuilt with CSS classes (fixed-width
+  fields, capped row width) instead of inline styles, and reordered: budget →
+  *Action costs* (now including the guest surcharge) → *when points run out*.
 
 ### Fixed
 - The **clear (×) button** in the advanced filters again wipes the whole field
   with the accelerating "held-backspace" animation on a single click. It had
   regressed to removing only one character per click (it required an actual
-  press-and-hold); clicking now runs the cascade to completion on its own.
+  press-and-hold); clicking now runs the cascade to completion on its own, and
+  the delete is noticeably snappier (faster first tick + acceleration).
 
 ### Removed
 - The misleading **"Steam DB Rating"** sort option (it was a duplicate of

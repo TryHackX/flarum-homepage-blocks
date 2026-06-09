@@ -84,6 +84,67 @@
     }
 }
 
+// Custom links editor (rows of name / url / colour / new-tab)
+.HomepageBlocks-linksEditor {
+    margin-top: 6px;
+}
+
+.HomepageBlocks-linkRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.HomepageBlocks-linkRow-fields {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+}
+
+.HomepageBlocks-linkName {
+    flex: 1 1 150px;
+    min-width: 110px;
+}
+
+.HomepageBlocks-linkUrl {
+    flex: 2 1 220px;
+    min-width: 150px;
+}
+
+.HomepageBlocks-linkColor {
+    width: 38px;
+    height: 36px;
+    padding: 2px;
+    border: 1px solid var(--control-bg);
+    border-radius: 4px;
+    background: var(--control-bg);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.HomepageBlocks-linkExternal {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    cursor: pointer;
+    margin: 0;
+}
+
+.HomepageBlocks-linkRow-actions {
+    display: inline-flex;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.HomepageBlocks-linksAdd {
+    margin-top: 4px;
+}
+
 .HomepageBlocks-support {
     text-align: center;
 

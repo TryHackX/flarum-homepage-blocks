@@ -2,6 +2,7 @@ import app from 'flarum/admin/app';
 import { extend } from 'flarum/common/extend';
 import ResetExtensionSettingsModal from 'flarum/admin/components/ResetExtensionSettingsModal';
 import SupportModal from './components/SupportModal';
+import LinksEditor from './components/LinksEditor';
 
 const S = 'tryhackx-homepage-blocks';
 
@@ -242,15 +243,24 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
 
         // ──────────── CUSTOM LINKS ────────────
         .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_links')))
-        .registerSetting(
-            textareaSetting(
-                'custom_links',
-                app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links'),
-                app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_help'),
-                '[{"label":"Custom Page","url":"/your-page","color":"#e74c3c"}]',
-                3
-            )
-        )
+        .registerSetting({
+            setting: `${S}.custom_links_title`,
+            type: 'text',
+            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_title'),
+            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_title_help'),
+            placeholder: 'Useful links',
+        })
+        .registerSetting(function () {
+            const setting = this.setting(S + '.custom_links');
+            return m('div', { className: 'Form-group' }, [
+                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links')),
+                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_help')),
+                m(LinksEditor, {
+                    value: () => setting(),
+                    onchange: (json) => setting(json),
+                }),
+            ]);
+        })
 
         // ──────────── CONTENT SETTINGS ────────────
         .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_content')))

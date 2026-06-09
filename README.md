@@ -63,8 +63,10 @@ You can also find the donation option in the extension's admin settings panel.
     - **Proxy** — JSON proxy URL for environments where direct access
       isn't possible.
   - Configurable refresh interval (1–300 s).
-- **Custom links bar** — JSON-configurable colour-coded link buttons
-  (`label`, `url`, `color`, `external`).
+- **Custom links bar** — add colour-coded link buttons in Section 1 from a
+  simple admin editor (name, URL, colour, open-in-new-tab, drag-free reorder)
+  with an optional section heading. URLs are sanitised (no `javascript:` /
+  `data:` schemes).
 - **Advanced discussion filters** — filter bar for the discussion list
   with 7 filter types:
   - Title search
@@ -143,7 +145,7 @@ php flarum cache:clear
 | **Random Movies** | JSON configuration for random-discussion buttons. |
 | **Tracker Info** | Tracker heading, sub-heading, announce URLs. |
 | **Tracker Statistics** | Toggle internal stats, configure external OpenTracker source (native or proxy mode), refresh interval. |
-| **Custom Links** | JSON configuration for custom link buttons. |
+| **Custom Links** | Add / reorder Section 1 link buttons (name, URL, colour, new-tab) and set an optional section title. |
 | **Content Settings** | Override title and content length limits. |
 | **Security (reCAPTCHA)** | Optional reCAPTCHA v2 / v3, plus the per-IP points rate limiter. Pick what happens when a visitor runs out of points: *Show reCAPTCHA* or *Temporarily block the IP* (with a configurable block duration). |
 
@@ -157,12 +159,16 @@ php flarum cache:clear
 ]
 ```
 
-### Custom links format
+### Custom links
+
+Manage Section 1 links from the admin editor (name, URL, colour, open-in-new-tab,
+reorder) plus an optional **links section title**. They are stored as a JSON
+array of `{label, url, color, external}` objects (shown here for reference):
 
 ```json
 [
-  {"label": "Template Generator", "url": "/generator", "color": "#e74c3c"},
-  {"label": "Template Merger",    "url": "/merger",    "color": "#e74c3c"}
+  {"label": "Tracker", "url": "https://tracker.example.org/", "color": "#3498db", "external": true},
+  {"label": "Home page", "url": "https://example.org/", "color": "#e74c3c", "external": true}
 ]
 ```
 
