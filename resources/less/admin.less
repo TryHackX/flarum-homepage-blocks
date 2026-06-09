@@ -84,84 +84,73 @@
     }
 }
 
-// Custom links editor — one card per link (fields row + meta/actions row)
+// Custom links editor — a single table, one link per row (headers shown once)
 .HomepageBlocks-linksEditor {
     margin-top: 8px;
-    max-width: 720px;
+    max-width: 760px;
 }
 
-.HomepageBlocks-linkRow {
-    border: 1px solid var(--control-bg);
-    border-radius: 6px;
-    padding: 10px 12px;
+.HomepageBlocks-linksTable {
+    width: 100%;
+    border-collapse: collapse;
     margin-bottom: 10px;
-    background: rgba(255, 255, 255, 0.02);
-}
 
-.HomepageBlocks-linkRow-fields {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 10px;
-}
-
-.HomepageBlocks-linkField {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-
-    > label {
+    th {
+        text-align: left;
         font-size: 12px;
         font-weight: 600;
         color: var(--muted-color);
+        padding: 2px 8px 6px 0;
+    }
+
+    td {
+        padding: 3px 8px 3px 0;
+        vertical-align: middle;
+    }
+
+    th.col-actions,
+    td.col-actions {
+        padding-right: 0;
+        text-align: right;
+    }
+
+    // Narrow columns shrink to their content.
+    .col-color,
+    .col-newtab,
+    .col-actions {
+        width: 1%;
+        white-space: nowrap;
     }
 
     .FormControl {
         width: 100%;
+        min-width: 0;
     }
-}
 
-.HomepageBlocks-linkName  { flex: 1 1 140px; min-width: 110px; }
-.HomepageBlocks-linkUrl   { flex: 2 1 220px; min-width: 150px; }
-.HomepageBlocks-linkClass { flex: 1 1 140px; min-width: 110px; }
-
-.HomepageBlocks-linkRow-meta {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-.HomepageBlocks-linkColor {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0;
-    cursor: pointer;
+    .col-name .FormControl { min-width: 90px; }
+    .col-url .FormControl { min-width: 150px; }
+    .col-class .FormControl { min-width: 100px; }
 
     input[type='color'] {
-        width: 34px;
-        height: 30px;
+        width: 36px;
+        height: 32px;
         padding: 2px;
         border: 1px solid var(--control-bg);
         border-radius: 4px;
         background: var(--control-bg);
         cursor: pointer;
+        vertical-align: middle;
+    }
+
+    input[type='checkbox'] {
+        margin: 0;
     }
 }
 
-.HomepageBlocks-linkExternal {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0;
-    cursor: pointer;
-}
-
 .HomepageBlocks-linkRow-actions {
-    margin-left: auto;
     display: inline-flex;
-    gap: 4px;
+    gap: 3px;
+    white-space: nowrap;
 }
 
 .HomepageBlocks-linksAdd {
