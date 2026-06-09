@@ -440,13 +440,11 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
         })
         .registerSetting(function () {
             const enabled = settingIsTruthy(this.setting(S + '.recaptcha_points_enabled')());
-            const grp = { opacity: enabled ? 1 : 0.5 };
-            const rowStyle = { display: 'flex', gap: '12px', flexWrap: 'wrap' };
-            const fieldStyle = { flex: '1 1 180px', minWidth: '150px' };
+            const t = (k) => app.translator.trans('tryhackx-homepage-blocks.admin.settings.' + k);
 
-            const numField = (key, labelKey, helpKey, placeholder, step, min, max) =>
-                m('div', { className: 'Form-group', style: fieldStyle }, [
-                    m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.' + labelKey)),
+            const numField = (key, labelKey, helpKey, placeholder, step, min, max, disabledExtra) =>
+                m('div', { className: 'HomepageBlocks-pointsField' }, [
+                    m('label', t(labelKey)),
                     m('input', {
                         type: 'number',
                         className: 'FormControl',
@@ -454,83 +452,60 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                         step: step,
                         min: min,
                         max: max,
-                        disabled: !enabled,
+                        disabled: !enabled || !!disabledExtra,
                         value: this.setting(S + '.' + key)() || '',
                         oninput: (e) => this.setting(S + '.' + key)(e.target.value),
                     }),
-                    helpKey ? m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.' + helpKey)) : null,
+                    helpKey ? m('div', { className: 'helpText' }, t(helpKey)) : null,
                 ]);
 
-            // Tryb egzekwowania po wyczerpaniu punktów: captcha lub blokada IP.
-            const enforcementRaw = this.setting(S + '.recaptcha_points_enforcement')();
-            const enforcement = enforcementRaw === 'block' ? 'block' : 'captcha';
+            const selectField = (key, labelKey, helpKey, current, options, disabledExtra) =>
+                m('div', { className: 'HomepageBlocks-pointsField' }, [
+                    m('label', t(labelKey)),
+                    m('select', {
+                        className: 'FormControl',
+                        disabled: !enabled || !!disabledExtra,
+                        value: current,
+                        onchange: (e) => this.setting(S + '.' + key)(e.target.value),
+                    }, options.map((o) => m('option', { value: o.value }, t(o.labelKey)))),
+                    helpKey ? m('div', { className: 'helpText' }, t(helpKey)) : null,
+                ]);
+
+            // Po wyczerpaniu punktów: captcha lub blokada IP (czas + reset budżetu).
+            const enforcement = this.setting(S + '.recaptcha_points_enforcement')() === 'block' ? 'block' : 'captcha';
             const blockMode = enforcement === 'block';
+            const blockReset = this.setting(S + '.recaptcha_points_block_reset')() === 'empty' ? 'empty' : 'full';
 
-            const enforcementField = m('div', { className: 'Form-group', style: fieldStyle }, [
-                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement')),
-                m('select', {
-                    className: 'FormControl',
-                    disabled: !enabled,
-                    value: enforcement,
-                    onchange: (e) => this.setting(S + '.recaptcha_points_enforcement')(e.target.value),
-                }, [
-                    m('option', { value: 'captcha' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement_captcha')),
-                    m('option', { value: 'block' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement_block')),
-                ]),
-                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enforcement_help')),
-            ]);
+            const row = (children) => m('div', { className: 'HomepageBlocks-pointsRow' }, children);
+            const heading = (key) => m('h4', { className: 'HomepageBlocks-pointsHeading' }, t(key));
 
-            const blockSecondsField = m('div', { className: 'Form-group', style: fieldStyle }, [
-                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_seconds')),
-                m('input', {
-                    type: 'number',
-                    className: 'FormControl',
-                    placeholder: '60',
-                    step: 1,
-                    min: 1,
-                    max: 86400,
-                    disabled: !enabled || !blockMode,
-                    value: this.setting(S + '.recaptcha_points_block_seconds')() || '',
-                    oninput: (e) => this.setting(S + '.recaptcha_points_block_seconds')(e.target.value),
-                }),
-                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_seconds_help')),
-            ]);
-
-            // Co zrobić z budżetem, gdy blokada się skończy: pełny albo pusty.
-            const blockResetRaw = this.setting(S + '.recaptcha_points_block_reset')();
-            const blockReset = blockResetRaw === 'empty' ? 'empty' : 'full';
-            const blockResetField = m('div', { className: 'Form-group', style: fieldStyle }, [
-                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset')),
-                m('select', {
-                    className: 'FormControl',
-                    disabled: !enabled || !blockMode,
-                    value: blockReset,
-                    onchange: (e) => this.setting(S + '.recaptcha_points_block_reset')(e.target.value),
-                }, [
-                    m('option', { value: 'full' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset_full')),
-                    m('option', { value: 'empty' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset_empty')),
-                ]),
-                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_block_reset_help')),
-            ]);
-
-            return m('div', { className: 'Form-group HomepageBlocks-pointsGroup', style: grp }, [
-                m('div', { style: rowStyle }, [
+            return m('div', { className: 'Form-group HomepageBlocks-pointsGroup' + (enabled ? '' : ' is-disabled') }, [
+                // Budżet i odnawianie
+                row([
                     numField.call(this, 'recaptcha_points_start', 'recaptcha_points_start', 'recaptcha_points_start_help', '10', 0.1, 0, 10000),
                     numField.call(this, 'recaptcha_points_refill_seconds', 'recaptcha_points_refill_seconds', 'recaptcha_points_refill_seconds_help', '15', 1, 1, 86400),
                     numField.call(this, 'recaptcha_points_refill_amount', 'recaptcha_points_refill_amount', 'recaptcha_points_refill_amount_help', '1', 0.1, 0, 10000),
                 ]),
-                m('div', { style: rowStyle }, [
+
+                // Koszty akcji (razem z dopłatą dla gości)
+                heading('points_costs_header'),
+                row([
                     numField.call(this, 'recaptcha_points_guest_extra', 'recaptcha_points_guest_extra', 'recaptcha_points_guest_extra_help', '2', 0.1, 0, 10000),
-                ]),
-                m('div', { style: { ...rowStyle, marginTop: '12px' } }, [
-                    enforcementField,
-                    blockSecondsField,
-                    blockResetField,
-                ]),
-                m('h4', { style: { marginTop: '12px', marginBottom: '6px' } }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.points_costs_header')),
-                m('div', { style: rowStyle }, [
                     numField.call(this, 'recaptcha_points_cost_random', 'recaptcha_points_cost_random', null, '0.5', 0.1, 0, 10000),
                     numField.call(this, 'recaptcha_points_cost_search', 'recaptcha_points_cost_search', null, '3', 0.1, 0, 10000),
+                ]),
+
+                // Po wyczerpaniu punktów (etykieta pierwszego pola pełni rolę nagłówka)
+                row([
+                    selectField.call(this, 'recaptcha_points_enforcement', 'recaptcha_points_enforcement', 'recaptcha_points_enforcement_help', enforcement, [
+                        { value: 'captcha', labelKey: 'recaptcha_points_enforcement_captcha' },
+                        { value: 'block', labelKey: 'recaptcha_points_enforcement_block' },
+                    ], false),
+                    numField.call(this, 'recaptcha_points_block_seconds', 'recaptcha_points_block_seconds', 'recaptcha_points_block_seconds_help', '60', 1, 1, 86400, !blockMode),
+                    selectField.call(this, 'recaptcha_points_block_reset', 'recaptcha_points_block_reset', 'recaptcha_points_block_reset_help', blockReset, [
+                        { value: 'full', labelKey: 'recaptcha_points_block_reset_full' },
+                        { value: 'empty', labelKey: 'recaptcha_points_block_reset_empty' },
+                    ], !blockMode),
                 ]),
             ]);
         });

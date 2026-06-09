@@ -40,6 +40,50 @@
     margin-bottom: 1px;
 }
 
+// Points-based rate limiting settings
+.HomepageBlocks-pointsGroup {
+    transition: opacity 0.2s;
+
+    &.is-disabled {
+        opacity: 0.5;
+    }
+}
+
+.HomepageBlocks-pointsHeading {
+    margin: 18px 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.HomepageBlocks-pointsRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    // Keep the block compact instead of stretching across very wide admin panels.
+    max-width: 760px;
+    margin-bottom: 4px;
+}
+
+.HomepageBlocks-pointsField {
+    width: 224px;
+    flex: 0 0 auto;
+
+    > label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .FormControl {
+        width: 100%;
+    }
+
+    .helpText {
+        margin-top: 4px;
+    }
+}
+
 .HomepageBlocks-support {
     text-align: center;
 

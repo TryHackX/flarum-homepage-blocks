@@ -27,9 +27,9 @@ export default class AdvancedFilters extends Component {
         // Accelerating-delete "hold X" state
         this.holdTimer = null;
         this.holdActiveField = null;
-        this.holdDelay = 300;          // initial delay before first tick
-        this.minHoldDelay = 30;        // fastest tick (ms)
-        this.holdAcceleration = 0.85;  // multiplicative decay per tick
+        this.holdDelay = 90;           // initial delay before first tick (ms)
+        this.minHoldDelay = 12;        // fastest tick (ms)
+        this.holdAcceleration = 0.70;  // multiplicative decay per tick (snappier)
 
         this.loadTags();
     }
