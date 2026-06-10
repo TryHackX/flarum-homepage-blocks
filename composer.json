@@ -1,14 +1,15 @@
 {
     "name": "tryhackx/flarum-homepage-blocks",
-    "description": "Customizable homepage blocks for TryHackX - random movies, tracker stats, advanced filters",
+    "description": "Customizable homepage blocks for tracker-style Flarum forums featuring random discussion buttons, dual statistics (internal & OpenTracker), advanced filters, and rate-limiting protection.",
     "keywords": [
         "flarum",
-        "flarum-extension",
+        "extension",
         "tracker",
         "statistics",
         "opentracker",
         "recaptcha",
         "antispam",
+        "rate-limiting",
         "validation",
         "title-length",
         "content-length",
@@ -17,14 +18,16 @@
         "sorting",
         "widgets",
         "homepage",
-        "blocks"
+        "blocks",
+        "random-discussion"
     ],
     "type": "flarum-extension",
     "license": "MIT",
     "authors": [
         {
             "name": "TryHackX",
-            "email": "contact@tryhackx.org"
+            "email": "contact@tryhackx.org",
+            "homepage": "https://github.com/TryHackX"
         }
     ],
     "support": {
@@ -33,7 +36,7 @@
     },
     "require": {
         "php": "^8.2",
-        "flarum/core": "^2.0.0-beta.7",
+        "flarum/core": "^2.0.0-rc.1",
         "flarum/tags": "^2.0.0-rc.1"
     },
     "suggest": {
@@ -57,5 +60,6 @@
             }
         }
     },
+    "minimum-stability": "dev",
     "prefer-stable": true
 }
