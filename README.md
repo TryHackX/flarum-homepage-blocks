@@ -95,7 +95,11 @@ You can also find the donation option in the extension's admin settings panel.
   **temporarily block the IP** for a configurable duration — block mode
   needs no reCAPTCHA at all and shows the visitor a friendly countdown.
   Client IPs are resolved from Flarum core (proxy-aware), so the limit
-  can't be bypassed with a spoofed `X-Forwarded-For` header.
+  can't be bypassed with a spoofed `X-Forwarded-For` header, and the
+  reCAPTCHA token is sent in an `X-Recaptcha-Token` header (never in the URL,
+  so it stays out of access logs). The per-IP budget is kept on the local
+  filesystem with per-IP locking — ideal for a single server; if you run
+  several app servers behind a load balancer, front them with a shared store.
 - **Collapsible sections** — Section 1 (random buttons + stats) can be
   collapsed by default to save space.
 - **Hide hero banner** — optional toggle to hide Flarum's default hero
@@ -106,7 +110,8 @@ You can also find the donation option in the extension's admin settings panel.
 
 ## Requirements
 
-- Flarum `^2.0.0-beta.7`
+- Flarum `^2.0.0-rc.1`
+- PHP `^8.3` (matches Flarum 2.x's own minimum)
 - `flarum/tags` (required)
 
 ### Recommended companions

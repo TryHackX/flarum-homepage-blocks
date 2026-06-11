@@ -1,7 +1,7 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
-import { appendRecaptchaToken, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse } from '../utils/recaptcha';
+import { recaptchaHeaders, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse } from '../utils/recaptcha';
 
 /**
  * TrackerStats component.
@@ -182,15 +182,12 @@ export default class TrackerStats extends Component {
     async performStatsRequest(scope, query, token = null) {
         let url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/stats';
         if (query) url += query;
-        if (token) {
-            const sep = url.indexOf('?') !== -1 ? '&' : '?';
-            url += sep + 'recaptcha_token=' + encodeURIComponent(token);
-        } else {
-            url = await appendRecaptchaToken(url, scope);
-        }
+
+        // Token reCAPTCHA w nagłówku, nie w query stringu (poza logami dostępu).
+        const headers = token ? { 'X-Recaptcha-Token': token } : await recaptchaHeaders(scope);
 
         try {
-            return await app.request({ method: 'GET', url });
+            return await app.request({ method: 'GET', url, headers });
         } catch (err) {
             const status = err && err.status;
             const body = err && err.response;

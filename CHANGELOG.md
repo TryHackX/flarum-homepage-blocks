@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-06-11
+
+Security + performance hardening. **No database migrations.** Existing behaviour
+is unchanged for visitors; the changes are server-side robustness and a smaller
+request footprint. After updating run `composer update` (autoload) +
+`php flarum cache:clear` and rebuild the frontend (`npm run build` in `js/`).
+
+### Security
+- **reCAPTCHA token no longer travels in the URL.** It is sent in an
+  `X-Recaptcha-Token` request header instead of a `?recaptcha_token=…` query
+  parameter, so it no longer lands in web-server / reverse-proxy access logs
+  (which routinely record full request URIs). The server reads the header first
+  and still accepts the old POST-body / query forms, so a stale cached frontend
+  keeps working during the rollout.
+
+### Performance & robustness
+- **Per-IP points bucket is now race-free.** `charge()` / `block()` /
+  `refillToStart()` / `getBlockRemaining()` run their read→modify→write under an
+  exclusive per-IP file lock (`flock`, the same pattern already used for the
+  external-stats single-flight). This closes a TOCTOU window where two parallel
+  requests from one IP could both read the same balance and only one deduction
+  would stick — letting a scripted burst drain the bucket slower than configured
+  and weakening the limiter. Orphan `.lock` files are swept by the existing
+  garbage collector.
+- **Internal stats are cached server-side (~10 s file cache).** A cold request
+  previously fired 5–7 aggregate `COUNT`/`SUM`/`AVG` queries *every* time; the
+  global figures (identical for every visitor) are now memoised in
+  `storage/cache/tryhackx_internal_stats.json`, so concurrent cold loads share
+  one computation per interval.
+- **External-stats cache write is now atomic** (temp file + `rename`, matching
+  the per-IP buckets), so a reader that isn't holding the lock can never observe
+  a half-written cache file.
+
+### Changed
+- The **feature-availability flags** `tryhackxHomepageHasRating` /
+  `tryhackxHomepageHasViews` now serialise from dedicated, self-documenting
+  setting keys (`…​.has_rating` / `…​.has_views`) instead of reusing the
+  unrelated `recaptcha_points_enabled` key. Behaviour is identical (the frontend
+  only checks whether the attribute is present), the code just reads clearly now.
+- **`composer.json`: `php` tightened `^8.2` → `^8.3`** to match Flarum 2.x's own
+  minimum, so the extension can no longer be installed onto a PHP 8.2 host where
+  core would fail with a confusing error.
+
+### Notes
+- The per-IP limiter stores its buckets on the **local filesystem (single
+  node)**. On a horizontally-scaled deployment each app server keeps its own
+  buckets; operators running multiple nodes behind a load balancer should front
+  it with a shared store. Single-server installs (the common case) are unaffected.
+
 ## [2.1.1] - 2026-06-10
 
 ### Added

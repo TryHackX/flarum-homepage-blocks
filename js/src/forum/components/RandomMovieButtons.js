@@ -1,7 +1,7 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
-import { appendRecaptchaToken, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse, showRateLimitNotice } from '../utils/recaptcha';
+import { recaptchaHeaders, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse, showRateLimitNotice } from '../utils/recaptcha';
 
 export default class RandomMovieButtons extends Component {
     oninit(vnode) {
@@ -88,15 +88,13 @@ export default class RandomMovieButtons extends Component {
      * response by prompting the user and retrying with a fresh token.
      */
     async performRequest(tagSlug, token = null) {
-        let url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/random?tag=' + encodeURIComponent(tagSlug);
-        if (token) {
-            url += '&recaptcha_token=' + encodeURIComponent(token);
-        } else {
-            url = await appendRecaptchaToken(url, 'random');
-        }
+        const url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/random?tag=' + encodeURIComponent(tagSlug);
+
+        // Token reCAPTCHA w nagłówku, nie w query stringu (poza logami dostępu).
+        const headers = token ? { 'X-Recaptcha-Token': token } : await recaptchaHeaders('random');
 
         try {
-            return await app.request({ method: 'GET', url });
+            return await app.request({ method: 'GET', url, headers });
         } catch (err) {
             // Flarum throws on non-2xx; inspect response
             const status = err && err.status;

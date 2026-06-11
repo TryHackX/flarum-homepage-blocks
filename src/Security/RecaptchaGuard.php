@@ -180,15 +180,20 @@ class RecaptchaGuard
 
     protected function extractToken(ServerRequestInterface $request): ?string
     {
-        $token = $request->getQueryParams()['recaptcha_token'] ?? null;
-        if ($token) {
-            return (string) $token;
+        // Preferowany kanał: nagłówek. Token NIE trafia wtedy do logów dostępu
+        // serwera/proxy (w przeciwieństwie do query stringa) — patrz audyt A1.
+        $header = trim($request->getHeaderLine('X-Recaptcha-Token'));
+        if ($header !== '') {
+            return $header;
         }
+        // Wsteczna zgodność: body POST, a w ostateczności query string (starszy
+        // frontend mógł jeszcze dopinać ?recaptcha_token=...).
         $body = $request->getParsedBody();
         if (is_array($body) && isset($body['recaptcha_token'])) {
             return (string) $body['recaptcha_token'];
         }
-        return null;
+        $token = $request->getQueryParams()['recaptcha_token'] ?? null;
+        return $token ? (string) $token : null;
     }
 
     /**

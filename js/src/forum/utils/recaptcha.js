@@ -125,13 +125,14 @@ export async function getRecaptchaToken(scope) {
 }
 
 /**
- * Dopnij recaptcha_token do URL, jeśli token jest dostępny dla zakresu.
+ * Zbierz nagłówki uwierzytelnienia reCAPTCHA dla zakresu. Token jedzie w
+ * nagłówku `X-Recaptcha-Token`, a NIE w query stringu — dzięki temu nie ląduje
+ * w logach dostępu serwera/proxy (które rutynowo zapisują pełne URI). Zwraca
+ * pusty obiekt, gdy token nie jest dostępny/wymagany dla zakresu.
  */
-export async function appendRecaptchaToken(url, scope) {
+export async function recaptchaHeaders(scope) {
     const token = await getRecaptchaToken(scope);
-    if (!token) return url;
-    const sep = url.indexOf('?') !== -1 ? '&' : '?';
-    return url + sep + 'recaptcha_token=' + encodeURIComponent(token);
+    return token ? { 'X-Recaptcha-Token': token } : {};
 }
 
 /**
@@ -145,21 +146,20 @@ export async function appendRecaptchaToken(url, scope) {
  *   { ok: false, captchaRequired: false, error }
  */
 export async function preflightCheck(scope, token = null) {
-    let url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/points/check?action=' + encodeURIComponent(scope);
-    if (token) {
-        url += '&recaptcha_token=' + encodeURIComponent(token);
-    } else {
-        const silent = await getRecaptchaToken(scope);
-        if (silent) {
-            url += '&recaptcha_token=' + encodeURIComponent(silent);
-        }
+    const url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/points/check?action=' + encodeURIComponent(scope);
+
+    // Token w nagłówku (nie w URL) — patrz recaptchaHeaders().
+    const headers = { 'Accept': 'application/json' };
+    const tok = token || (await getRecaptchaToken(scope));
+    if (tok) {
+        headers['X-Recaptcha-Token'] = tok;
     }
 
     try {
         const res = await fetch(url, {
             method: 'GET',
             credentials: 'same-origin',
-            headers: { 'Accept': 'application/json' },
+            headers,
         });
         const data = await res.json().catch(() => ({}));
 

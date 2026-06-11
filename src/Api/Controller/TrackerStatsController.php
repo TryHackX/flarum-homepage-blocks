@@ -18,6 +18,9 @@ class TrackerStatsController implements RequestHandlerInterface
 {
     use BuildsGuardResponse;
 
+    /** Czas życia cache statystyk wewnętrznych (sekundy). Krótki — staty mają być „żywe”. */
+    protected const INTERNAL_STATS_TTL = 10;
+
     public function __construct(
         protected RecaptchaGuard $guard,
         protected SettingsRepositoryInterface $settings,
@@ -46,6 +49,30 @@ class TrackerStatsController implements RequestHandlerInterface
             return $error;
         }
 
+        // Statystyki wewnętrzne to globalne agregaty (count/sum/avg) — identyczne
+        // dla każdego widza, więc krótko cache'ujemy je w pliku. Bez tego 5–7
+        // zapytań agregujących szło do bazy przy KAŻDYM zimnym żądaniu (audyt C1).
+        $stats = $this->getCachedInternalStats(self::INTERNAL_STATS_TTL);
+        if ($stats === null) {
+            $stats = $this->computeInternalStats();
+            $this->setCachedInternalStats($stats);
+        }
+
+        return new JsonResponse([
+            'balance' => $result['balance'] ?? null,
+            'cost' => $result['cost'] ?? null,
+            'refilled' => $result['refilled'] ?? false,
+            'data' => $stats,
+        ]);
+    }
+
+    /**
+     * Policz globalne statystyki wewnętrzne (baza). Każda gałąź zależna od innego
+     * rozszerzenia jest w try/catch, więc brak magnet-link / discussion-views /
+     * topic-rating daje 0 zamiast wywrócić zapytanie.
+     */
+    protected function computeInternalStats(): array
+    {
         $stats = [];
         $stats['discussions'] = Discussion::whereNull('hidden_at')->count();
         $stats['users'] = User::count();
@@ -75,12 +102,7 @@ class TrackerStatsController implements RequestHandlerInterface
             $stats['rated_count'] = 0;
         }
 
-        return new JsonResponse([
-            'balance' => $result['balance'] ?? null,
-            'cost' => $result['cost'] ?? null,
-            'refilled' => $result['refilled'] ?? false,
-            'data' => $stats,
-        ]);
+        return $stats;
     }
 
     // ────────────── Statystyki zewnętrzne (OpenTracker / proxy) ──────────────
@@ -181,9 +203,36 @@ class TrackerStatsController implements RequestHandlerInterface
         return $this->paths->storage . '/cache/tryhackx_external_stats.json';
     }
 
+    protected function getInternalCacheFilePath(): string
+    {
+        return $this->paths->storage . '/cache/tryhackx_internal_stats.json';
+    }
+
     protected function getCachedExternalStats(int $maxAgeSeconds): ?array
     {
-        $file = $this->getCacheFilePath();
+        return $this->readCacheFile($this->getCacheFilePath(), $maxAgeSeconds);
+    }
+
+    protected function setCachedExternalStats(array $data): void
+    {
+        $this->atomicWrite($this->getCacheFilePath(), json_encode($data));
+    }
+
+    protected function getCachedInternalStats(int $maxAgeSeconds): ?array
+    {
+        return $this->readCacheFile($this->getInternalCacheFilePath(), $maxAgeSeconds);
+    }
+
+    protected function setCachedInternalStats(array $data): void
+    {
+        $this->atomicWrite($this->getInternalCacheFilePath(), json_encode($data));
+    }
+
+    /**
+     * Odczyt cache plikowego z kontrolą wieku. Zwraca null gdy brak/wygasł/uszkodzony.
+     */
+    protected function readCacheFile(string $file, int $maxAgeSeconds): ?array
+    {
         if (!file_exists($file)) {
             return null;
         }
@@ -202,10 +251,19 @@ class TrackerStatsController implements RequestHandlerInterface
         return is_array($data) ? $data : null;
     }
 
-    protected function setCachedExternalStats(array $data): void
+    /**
+     * Atomowy zapis: zapisz do pliku tymczasowego i podmień przez rename (atomowy),
+     * żeby czytelnik nie trzymający locka nie trafił na rozerwany plik (audyt D2).
+     */
+    protected function atomicWrite(string $file, string $payload): void
     {
-        $file = $this->getCacheFilePath();
-        @file_put_contents($file, json_encode($data), LOCK_EX);
+        $tmp = $file . '.' . getmypid() . '.tmp';
+        if (@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
+            if (!@rename($tmp, $file)) {
+                @file_put_contents($file, $payload, LOCK_EX);
+                @unlink($tmp);
+            }
+        }
     }
 
     // ────────────── Natywny OpenTracker (XML) ──────────────

@@ -133,11 +133,13 @@ class PointsManager
      */
     public function getBlockRemaining(string $ip): int
     {
-        $state = $this->normalize($this->readState($ip));
-        $this->writeState($ip, $state);
+        return $this->withLock($ip, function () use ($ip) {
+            $state = $this->normalize($this->readState($ip));
+            $this->writeState($ip, $state);
 
-        $remaining = (int) $state['blocked_until'] - time();
-        return max(0, $remaining);
+            $remaining = (int) $state['blocked_until'] - time();
+            return max(0, $remaining);
+        });
     }
 
     /**
@@ -146,12 +148,14 @@ class PointsManager
     public function block(string $ip, int $seconds): int
     {
         $seconds = max(1, $seconds);
-        $state = $this->normalize($this->readState($ip));
-        $state['balance'] = 0.0;
-        $state['ts'] = time();
-        $state['blocked_until'] = time() + $seconds;
-        $this->writeState($ip, $state);
-        return $seconds;
+        return $this->withLock($ip, function () use ($ip, $seconds) {
+            $state = $this->normalize($this->readState($ip));
+            $state['balance'] = 0.0;
+            $state['ts'] = time();
+            $state['blocked_until'] = time() + $seconds;
+            $this->writeState($ip, $state);
+            return $seconds;
+        });
     }
 
     /**
@@ -162,23 +166,29 @@ class PointsManager
      */
     public function charge(string $ip, float $cost): array
     {
-        $state = $this->normalize($this->readState($ip));
+        // Całość read→sprawdź→write pod ekskluzywną blokadą per-IP, inaczej dwa
+        // równoległe workery odczytałyby to samo saldo i każdy pobrałby koszt,
+        // a wygrałby tylko ostatni zapis (TOCTOU) — co pozwalało zdrenować kubełek
+        // wolniej, niż wynika z konfiguracji, i osłabiało limiter (audyt A3).
+        return $this->withLock($ip, function () use ($ip, $cost) {
+            $state = $this->normalize($this->readState($ip));
 
-        // Aktywna blokada — nic nie pobieramy.
-        if ((int) $state['blocked_until'] > time()) {
+            // Aktywna blokada — nic nie pobieramy.
+            if ((int) $state['blocked_until'] > time()) {
+                $this->writeState($ip, $state);
+                return ['ok' => false, 'balance' => (float) $state['balance']];
+            }
+
+            if ($state['balance'] < $cost) {
+                $this->writeState($ip, $state);
+                return ['ok' => false, 'balance' => (float) $state['balance']];
+            }
+
+            $state['balance'] = max(0.0, $state['balance'] - $cost);
+            $state['ts'] = time();
             $this->writeState($ip, $state);
-            return ['ok' => false, 'balance' => (float) $state['balance']];
-        }
-
-        if ($state['balance'] < $cost) {
-            $this->writeState($ip, $state);
-            return ['ok' => false, 'balance' => (float) $state['balance']];
-        }
-
-        $state['balance'] = max(0.0, $state['balance'] - $cost);
-        $state['ts'] = time();
-        $this->writeState($ip, $state);
-        return ['ok' => true, 'balance' => (float) $state['balance']];
+            return ['ok' => true, 'balance' => (float) $state['balance']];
+        });
     }
 
     /**
@@ -188,11 +198,44 @@ class PointsManager
     public function refillToStart(string $ip): float
     {
         $start = $this->getStart();
-        $this->writeState($ip, ['balance' => $start, 'ts' => time(), 'blocked_until' => 0]);
+        $this->withLock($ip, function () use ($ip, $start) {
+            $this->writeState($ip, ['balance' => $start, 'ts' => time(), 'blocked_until' => 0]);
+        });
         return $start;
     }
 
     // ────────────── Magazyn wewnętrzny ──────────────
+
+    /**
+     * Wykonaj operację read-modify-write na kubełku danego IP pod ekskluzywną
+     * blokadą plikową (osobny plik .lock per IP). Serializuje równoległe workery
+     * obsługujące to samo IP, więc księgowanie punktów jest atomowe.
+     *
+     * Gdy locka nie da się założyć (np. brak praw do pliku), wykonujemy callback
+     * bez niego — limiter ma działać best-effort, a nie paść przez brak .lock.
+     *
+     * @template T
+     * @param  callable():T $fn
+     * @return T
+     */
+    protected function withLock(string $ip, callable $fn)
+    {
+        $lockPath = $this->getFile($ip) . '.lock';
+        $fp = @fopen($lockPath, 'c');
+        if ($fp === false) {
+            return $fn();
+        }
+
+        $locked = @flock($fp, LOCK_EX);
+        try {
+            return $fn();
+        } finally {
+            if ($locked) {
+                @flock($fp, LOCK_UN);
+            }
+            @fclose($fp);
+        }
+    }
 
     protected function getDir(): string
     {
@@ -334,7 +377,13 @@ class PointsManager
             $dir = $this->getDir();
             $files = @glob($dir . '/*.json');
             if (!is_array($files)) {
-                return;
+                $files = [];
+            }
+            // Osierocone pliki-blokady (.json.lock) też sprzątamy — glob '*.json'
+            // ich nie łapie, a po dniach bezczynności i tak nic nie znaczą.
+            $locks = @glob($dir . '/*.json.lock');
+            if (is_array($locks)) {
+                $files = array_merge($files, $locks);
             }
             $deleted = 0;
             foreach ($files as $file) {

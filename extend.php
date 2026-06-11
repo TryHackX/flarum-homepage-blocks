@@ -125,12 +125,15 @@ return [
             (new Extend\SearchDriver(DatabaseSearchDriver::class))
                 ->addFilter(DiscussionSearcher::class, RatingFilter::class)
                 ->addMutator(DiscussionSearcher::class, SteamRatingSortMutator::class),
+            // Sam fakt obecności atrybutu (frontend sprawdza `typeof !== undefined`)
+            // sygnalizuje dostępność funkcji. Klucz dedykowany i samodokumentujący —
+            // wartość w bazie nie istnieje, callback zawsze zwraca true (audyt D1/#6).
             (new Extend\Settings())
-                ->serializeToForum('tryhackxHomepageHasRating', 'tryhackx-homepage-blocks.recaptcha_points_enabled', fn () => true),
+                ->serializeToForum('tryhackxHomepageHasRating', 'tryhackx-homepage-blocks.has_rating', fn () => true),
         ])
         ->whenExtensionEnabled('fof-discussion-views', fn () => [
             (new Extend\Settings())
-                ->serializeToForum('tryhackxHomepageHasViews', 'tryhackx-homepage-blocks.recaptcha_points_enabled', fn () => true),
+                ->serializeToForum('tryhackxHomepageHasViews', 'tryhackx-homepage-blocks.has_views', fn () => true),
         ]),
 
     // ── Nadpisanie długości tytułu/treści (dyskusje) ──
