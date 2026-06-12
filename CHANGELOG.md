@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.4] - 2026-06-12
+
+Small maintainability + robustness patch from a third-party review pass.
+**No database migrations, no frontend changes** (PHP only — `composer update` +
+`php flarum cache:clear` after updating).
+
+### Changed
+- **External-stats fetch de-duplicated.** `fetchRawContent()` and
+  `fetchExternalStats()` shared near-identical cURL boilerplate; the transport
+  now lives in a single `fetchRaw()` helper (cURL with forced IPv4, connect/total
+  timeouts and redirect handling, plus the `file_get_contents` fallback), and the
+  JSON-proxy path simply decodes its result. The fallback now also sends the
+  `User-Agent` header on every path. Behaviour is unchanged; ~50 lines of
+  copy-paste removed.
+
+### Performance & robustness
+- **reCAPTCHA verification frees the worker faster when Google is unreachable.**
+  Added a 5 s `CURLOPT_CONNECTTIMEOUT` to the `siteverify` call (the 10 s total
+  timeout is unchanged), so a Google outage releases the PHP-FPM worker after
+  ~5 s instead of holding it for the full timeout.
+
+### Notes
+- Several review suggestions were **deliberately not applied** because they are
+  inapplicable to Flarum 2.x or would regress behaviour: `SteamRatingSort`'s
+  `sortMap()` / alias methods are **required** by Flarum core (it calls
+  `sortMap()` on every registered sort via `Api\Resource\Concerns\HasSortMap` —
+  removing them 500s the whole forum); Laravel's `Illuminate\Http\Client` is
+  **not bundled** with Flarum 2.x; the file-based rate-limiter depends on
+  `flock` + atomic `rename`, which the Filesystem abstraction doesn't expose; and
+  a TypeScript migration is large, behaviour-neutral churn. The useful parts
+  (de-duplication, connect timeout) were taken.
+
 ## [2.1.3] - 2026-06-11
 
 Security + performance hardening. **No database migrations.** Existing behaviour

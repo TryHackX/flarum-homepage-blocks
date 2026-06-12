@@ -274,7 +274,7 @@ class TrackerStatsController implements RequestHandlerInterface
      */
     protected function fetchNativeOpenTracker(string $url): ?array
     {
-        $rawXml = $this->fetchRawContent($url);
+        $rawXml = $this->fetchRaw($url);
         if ($rawXml === null) {
             return null;
         }
@@ -294,10 +294,15 @@ class TrackerStatsController implements RequestHandlerInterface
     }
 
     /**
-     * Pobierz surową treść z URL (cURL, fallback file_get_contents).
+     * Pobierz surową treść z URL: cURL (z wymuszonym IPv4, limitami connect/total
+     * i podążaniem za przekierowaniami), a gdy cURL niedostępny — fallback na
+     * file_get_contents ze stream context. Jedno miejsce konfiguracji transportu,
+     * współdzielone przez ścieżkę natywną (XML) i proxy (JSON) — audyt #8.
      */
-    protected function fetchRawContent(string $url): ?string
+    protected function fetchRaw(string $url): ?string
     {
+        $userAgent = 'Flarum/2.0 HomepageBlocks';
+
         if (function_exists('curl_init')) {
             try {
                 $ch = curl_init();
@@ -305,7 +310,7 @@ class TrackerStatsController implements RequestHandlerInterface
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                 curl_setopt($ch, CURLOPT_TIMEOUT, 12);
                 curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
-                curl_setopt($ch, CURLOPT_USERAGENT, 'Flarum/2.0 HomepageBlocks');
+                curl_setopt($ch, CURLOPT_USERAGENT, $userAgent);
                 curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
                 curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
                 if (defined('CURLOPT_IPRESOLVE')) {
@@ -324,7 +329,11 @@ class TrackerStatsController implements RequestHandlerInterface
         }
 
         $context = stream_context_create([
-            'http' => ['timeout' => 12, 'method' => 'GET'],
+            'http' => [
+                'timeout' => 12,
+                'method' => 'GET',
+                'header' => 'User-Agent: ' . $userAgent . "\r\n",
+            ],
         ]);
         $response = @file_get_contents($url, false, $context);
         return $response !== false ? $response : null;
@@ -338,56 +347,13 @@ class TrackerStatsController implements RequestHandlerInterface
      */
     protected function fetchExternalStats(string $url): ?array
     {
-        if (function_exists('curl_init')) {
-            try {
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 12);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
-                curl_setopt($ch, CURLOPT_USERAGENT, 'Flarum/2.0 HomepageBlocks');
-                curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-                curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
-                if (defined('CURLOPT_IPRESOLVE')) {
-                    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-                }
-                $response = curl_exec($ch);
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
-
-                if ($response !== false && $httpCode >= 200 && $httpCode < 400) {
-                    $data = json_decode($response, true);
-                    if (is_array($data)) {
-                        return $this->normalizeExternalData($data);
-                    }
-                }
-            } catch (\Exception $e) {
-                // przejdź do fallbacku
-            }
+        $raw = $this->fetchRaw($url);
+        if ($raw === null) {
+            return null;
         }
 
-        try {
-            $context = stream_context_create([
-                'http' => [
-                    'timeout' => 12,
-                    'method' => 'GET',
-                    'header' => "User-Agent: Flarum/2.0 HomepageBlocks\r\n",
-                ],
-            ]);
-
-            $response = @file_get_contents($url, false, $context);
-
-            if ($response !== false) {
-                $data = json_decode($response, true);
-                if (is_array($data)) {
-                    return $this->normalizeExternalData($data);
-                }
-            }
-        } catch (\Exception $e) {
-            // ignoruj
-        }
-
-        return null;
+        $data = json_decode($raw, true);
+        return is_array($data) ? $this->normalizeExternalData($data) : null;
     }
 
     protected function normalizeExternalData(array $data): array

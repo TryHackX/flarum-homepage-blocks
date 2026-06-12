@@ -218,6 +218,9 @@ class RecaptchaGuard
         ]));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        // Ogranicz fazę połączenia osobno — gdy siteverify jest nieosiągalne,
+        // worker PHP zwalnia się po ~5 s zamiast czekać pełny timeout (audyt #4).
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
         $response = curl_exec($ch);
         curl_close($ch);
 

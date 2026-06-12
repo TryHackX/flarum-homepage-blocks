@@ -37,6 +37,10 @@ use Tobyz\JsonApiServer\Schema\Sort;
  */
 class SteamRatingSort extends Sort
 {
+    // UWAGA: NIE usuwać $alias / ascendingAlias / descendingAlias / sortMap.
+    // Flarum core wywołuje sortMap() przez Api\Resource\Concerns\HasSortMap przy
+    // budowaniu mapy sortowań zasobu — brak metody = fatal i HTTP 500 na całym
+    // forum. (Audyt floxum błędnie uznał je za martwy kod; patrz HasSortMap.php.)
     protected array $alias = [
         'asc' => null,
         'desc' => null,
