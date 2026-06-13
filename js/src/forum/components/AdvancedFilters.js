@@ -1,6 +1,7 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import { preflightCheck, showCaptchaModal, guardActiveFor, showRateLimitNotice } from '../utils/recaptcha';
+import { transStr } from '../utils/trans';
 
 /**
  * AdvancedFilters component.
@@ -52,7 +53,7 @@ export default class AdvancedFilters extends Component {
         const showOnlyUsed = app.forum.attribute('tryhackx-homepage-blocks.show_only_used_tags');
         const showCount = app.forum.attribute('tryhackx-homepage-blocks.show_tag_count');
 
-        const categoryOptions = { all: this.transStr('tryhackx-homepage-blocks.forum.filter_all') };
+        const categoryOptions = { all: transStr('tryhackx-homepage-blocks.forum.filter_all') };
         this.categoryTags.forEach((t) => {
             const count = t.discussionCount ? t.discussionCount() : 0;
             if (showOnlyUsed && count === 0) return;
@@ -60,7 +61,7 @@ export default class AdvancedFilters extends Component {
             categoryOptions[t.slug()] = label;
         });
 
-        const resolutionOptions = { all: this.transStr('tryhackx-homepage-blocks.forum.filter_all') };
+        const resolutionOptions = { all: transStr('tryhackx-homepage-blocks.forum.filter_all') };
         this.resolutionTags.forEach((t) => {
             const count = t.discussionCount ? t.discussionCount() : 0;
             if (showOnlyUsed && count === 0) return;
@@ -69,15 +70,15 @@ export default class AdvancedFilters extends Component {
         });
 
         const ratingIntervalOptions = {
-            '0': this.transStr('tryhackx-homepage-blocks.forum.interval_all'),
-            'today': this.transStr('tryhackx-homepage-blocks.forum.interval_today'),
-            '1d': this.transStr('tryhackx-homepage-blocks.forum.interval_1d'),
-            '1w': this.transStr('tryhackx-homepage-blocks.forum.interval_1w'),
-            '2w': this.transStr('tryhackx-homepage-blocks.forum.interval_2w'),
-            '1m': this.transStr('tryhackx-homepage-blocks.forum.interval_1m'),
-            '3m': this.transStr('tryhackx-homepage-blocks.forum.interval_3m'),
-            '6m': this.transStr('tryhackx-homepage-blocks.forum.interval_6m'),
-            '1y': this.transStr('tryhackx-homepage-blocks.forum.interval_1y'),
+            '0': transStr('tryhackx-homepage-blocks.forum.interval_all'),
+            'today': transStr('tryhackx-homepage-blocks.forum.interval_today'),
+            '1d': transStr('tryhackx-homepage-blocks.forum.interval_1d'),
+            '1w': transStr('tryhackx-homepage-blocks.forum.interval_1w'),
+            '2w': transStr('tryhackx-homepage-blocks.forum.interval_2w'),
+            '1m': transStr('tryhackx-homepage-blocks.forum.interval_1m'),
+            '3m': transStr('tryhackx-homepage-blocks.forum.interval_3m'),
+            '6m': transStr('tryhackx-homepage-blocks.forum.interval_6m'),
+            '1y': transStr('tryhackx-homepage-blocks.forum.interval_1y'),
         };
 
         // Wykrywanie rozszerzeń przez atrybuty forum (serializowane warunkowo w
@@ -90,38 +91,38 @@ export default class AdvancedFilters extends Component {
         const hasMagnet = typeof app.forum.attribute('magnetClickTracking') !== 'undefined';
 
         const sortOptions = {
-            '4': this.transStr('tryhackx-homepage-blocks.forum.sort_created'),
+            '4': transStr('tryhackx-homepage-blocks.forum.sort_created'),
         };
         if (hasRating) {
-            sortOptions['0'] = this.transStr('tryhackx-homepage-blocks.forum.sort_steamdb');
-            sortOptions['1'] = this.transStr('tryhackx-homepage-blocks.forum.sort_avg_rating');
-            sortOptions['2'] = this.transStr('tryhackx-homepage-blocks.forum.sort_rating_count');
-            sortOptions['3'] = this.transStr('tryhackx-homepage-blocks.forum.sort_recently_rated');
+            sortOptions['0'] = transStr('tryhackx-homepage-blocks.forum.sort_steamdb');
+            sortOptions['1'] = transStr('tryhackx-homepage-blocks.forum.sort_avg_rating');
+            sortOptions['2'] = transStr('tryhackx-homepage-blocks.forum.sort_rating_count');
+            sortOptions['3'] = transStr('tryhackx-homepage-blocks.forum.sort_recently_rated');
         }
         if (hasViews) {
-            sortOptions['5'] = this.transStr('tryhackx-homepage-blocks.forum.sort_views');
+            sortOptions['5'] = transStr('tryhackx-homepage-blocks.forum.sort_views');
         }
         if (hasMagnet) {
-            sortOptions['6'] = this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_sum');
-            sortOptions['7'] = this.transStr('tryhackx-homepage-blocks.forum.sort_magnet_max');
-            sortOptions['8'] = this.transStr('tryhackx-homepage-blocks.forum.sort_recently_clicked');
+            sortOptions['6'] = transStr('tryhackx-homepage-blocks.forum.sort_magnet_sum');
+            sortOptions['7'] = transStr('tryhackx-homepage-blocks.forum.sort_magnet_max');
+            sortOptions['8'] = transStr('tryhackx-homepage-blocks.forum.sort_recently_clicked');
         }
 
         const dateIntervalOptions = {
-            '0': this.transStr('tryhackx-homepage-blocks.forum.interval_all'),
-            'today': this.transStr('tryhackx-homepage-blocks.forum.interval_today'),
-            '1d': this.transStr('tryhackx-homepage-blocks.forum.interval_1d'),
-            '1w': this.transStr('tryhackx-homepage-blocks.forum.interval_1w'),
-            '2w': this.transStr('tryhackx-homepage-blocks.forum.interval_2w'),
-            '1m': this.transStr('tryhackx-homepage-blocks.forum.interval_1m'),
-            '3m': this.transStr('tryhackx-homepage-blocks.forum.interval_3m'),
-            '6m': this.transStr('tryhackx-homepage-blocks.forum.interval_6m'),
-            '1y': this.transStr('tryhackx-homepage-blocks.forum.interval_1y'),
+            '0': transStr('tryhackx-homepage-blocks.forum.interval_all'),
+            'today': transStr('tryhackx-homepage-blocks.forum.interval_today'),
+            '1d': transStr('tryhackx-homepage-blocks.forum.interval_1d'),
+            '1w': transStr('tryhackx-homepage-blocks.forum.interval_1w'),
+            '2w': transStr('tryhackx-homepage-blocks.forum.interval_2w'),
+            '1m': transStr('tryhackx-homepage-blocks.forum.interval_1m'),
+            '3m': transStr('tryhackx-homepage-blocks.forum.interval_3m'),
+            '6m': transStr('tryhackx-homepage-blocks.forum.interval_6m'),
+            '1y': transStr('tryhackx-homepage-blocks.forum.interval_1y'),
         };
 
         const directionOptions = {
-            desc: this.transStr('tryhackx-homepage-blocks.forum.sort_desc'),
-            asc: this.transStr('tryhackx-homepage-blocks.forum.sort_asc'),
+            desc: transStr('tryhackx-homepage-blocks.forum.sort_desc'),
+            asc: transStr('tryhackx-homepage-blocks.forum.sort_asc'),
         };
 
         return m('div', { className: 'AdvancedFilters' }, [
@@ -138,7 +139,7 @@ export default class AdvancedFilters extends Component {
                 this.renderSelect('filter_resolution', resolutionOptions, 'resolution',
                     app.forum.attribute('tryhackx-homepage-blocks.resolution_label') || null),
                 m('div', { className: 'AdvancedFilters-field AdvancedFilters-field--right' }, [
-                    m('label', this.transStr('tryhackx-homepage-blocks.forum.filter_direction') + ':'),
+                    m('label', transStr('tryhackx-homepage-blocks.forum.filter_direction') + ':'),
                     m(
                         'select',
                         {
@@ -158,23 +159,15 @@ export default class AdvancedFilters extends Component {
         ]);
     }
 
-    transStr(key) {
-        const result = app.translator.trans(key);
-        if (Array.isArray(result)) {
-            return result.map((item) => (typeof item === 'string' ? item : '')).join('');
-        }
-        return String(result || '');
-    }
-
     renderTextField(labelKey, placeholderKey, filterKey) {
         const value = this.filters[filterKey] || '';
         return m('div', { className: 'AdvancedFilters-field' }, [
-            m('label', this.transStr('tryhackx-homepage-blocks.forum.' + labelKey) + ':'),
+            m('label', transStr('tryhackx-homepage-blocks.forum.' + labelKey) + ':'),
             m('div', { className: 'AdvancedFilters-inputWrap' }, [
                 m('input', {
                     type: 'text',
                     className: 'FormControl AdvancedFilters-input' + (value ? ' has-value' : ''),
-                    placeholder: this.transStr('tryhackx-homepage-blocks.forum.' + placeholderKey),
+                    placeholder: transStr('tryhackx-homepage-blocks.forum.' + placeholderKey),
                     value,
                     oninput: (e) => {
                         this.filters[filterKey] = e.target.value;
@@ -190,8 +183,8 @@ export default class AdvancedFilters extends Component {
                 value ? m('button', {
                     type: 'button',
                     className: 'AdvancedFilters-clear',
-                    title: this.transStr('tryhackx-homepage-blocks.forum.clear_field'),
-                    'aria-label': this.transStr('tryhackx-homepage-blocks.forum.clear_field'),
+                    title: transStr('tryhackx-homepage-blocks.forum.clear_field'),
+                    'aria-label': transStr('tryhackx-homepage-blocks.forum.clear_field'),
                     // Klik uruchamia przyspieszane kasowanie aż do opróżnienia pola
                     // (efekt jak przytrzymany backspace). Nie wymaga przytrzymania.
                     onclick: (e) => {
@@ -247,7 +240,7 @@ export default class AdvancedFilters extends Component {
     }
 
     renderSelect(labelKey, options, filterKey, customLabel) {
-        const label = customLabel || this.transStr('tryhackx-homepage-blocks.forum.' + labelKey);
+        const label = customLabel || transStr('tryhackx-homepage-blocks.forum.' + labelKey);
         return m('div', { className: 'AdvancedFilters-field' }, [
             m('label', label + ':'),
             m(

@@ -2,6 +2,7 @@ import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import { recaptchaHeaders, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse } from '../utils/recaptcha';
+import { transStr } from '../utils/trans';
 
 /**
  * TrackerStats component.
@@ -69,8 +70,8 @@ export default class TrackerStats extends Component {
         const cache = app.homepageStatsCache;
         const title = app.forum.attribute('tryhackx-homepage-blocks.stats_title') || 'Current tracker statistics:';
 
-        const internalLabel = this.transStr('tryhackx-homepage-blocks.forum.stats_internal_label');
-        const externalLabel = this.transStr('tryhackx-homepage-blocks.forum.stats_external_label');
+        const internalLabel = transStr('tryhackx-homepage-blocks.forum.stats_internal_label');
+        const externalLabel = transStr('tryhackx-homepage-blocks.forum.stats_external_label');
 
         return m('div', { className: 'TrackerStats' }, [
             m('div', { className: 'TrackerStats-title' }, [
@@ -156,14 +157,6 @@ export default class TrackerStats extends Component {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
         if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
         return String(n);
-    }
-
-    transStr(key) {
-        const result = app.translator.trans(key);
-        if (Array.isArray(result)) {
-            return result.map((item) => (typeof item === 'string' ? item : '')).join('');
-        }
-        return String(result || '');
     }
 
     formatUptime(seconds) {

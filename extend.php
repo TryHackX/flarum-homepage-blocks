@@ -56,7 +56,10 @@ return [
         ->serializeToForum('tryhackx-homepage-blocks.external_stats_enabled', 'tryhackx-homepage-blocks.external_stats_enabled', function ($value) {
             return (bool) $value;
         })
-        ->serializeToForum('tryhackx-homepage-blocks.external_stats_url', 'tryhackx-homepage-blocks.external_stats_url')
+        // UWAGA: NIE serializujemy external_stats_url / external_stats_native_url do
+        // forum — to wewnętrzne URL-e proxy/trackera (mogą zdradzać prywatny IP:port).
+        // Czyta je wyłącznie kontroler po stronie serwera; frontend woła endpoint
+        // ?source=external i nigdy nie potrzebuje samego URL-a (audyt: privacy).
         ->serializeToForum('tryhackx-homepage-blocks.custom_links', 'tryhackx-homepage-blocks.custom_links')
         ->serializeToForum('tryhackx-homepage-blocks.custom_links_title', 'tryhackx-homepage-blocks.custom_links_title')
         ->serializeToForum('tryhackx-homepage-blocks.custom_links_css', 'tryhackx-homepage-blocks.custom_links_css')

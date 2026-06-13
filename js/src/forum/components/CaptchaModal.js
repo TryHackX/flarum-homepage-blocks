@@ -2,6 +2,7 @@ import Modal from 'flarum/common/components/Modal';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import Button from 'flarum/common/components/Button';
 import app from 'flarum/forum/app';
+import { transStr } from '../utils/trans';
 
 /**
  * Modal shown when the points bucket for a given action is exhausted. The user
@@ -71,7 +72,7 @@ export default class CaptchaModal extends Modal {
             this.status === 'verifying'
                 ? m('div', { className: 'HomepageBlocks-CaptchaModal-status' }, [
                     m(LoadingIndicator, { size: 'small', display: 'inline' }),
-                    m('span', ' ' + this.transStr('tryhackx-homepage-blocks.forum.captcha_verifying')),
+                    m('span', ' ' + transStr('tryhackx-homepage-blocks.forum.captcha_verifying')),
                 ])
                 : null,
 
@@ -85,22 +86,14 @@ export default class CaptchaModal extends Modal {
                     ? m(Button, {
                         className: 'Button Button--primary',
                         onclick: () => this.retry(),
-                    }, this.transStr('tryhackx-homepage-blocks.forum.captcha_retry'))
+                    }, transStr('tryhackx-homepage-blocks.forum.captcha_retry'))
                     : null,
                 m(Button, {
                     className: 'Button',
                     onclick: () => this.hide(),
-                }, this.transStr('tryhackx-homepage-blocks.forum.captcha_close')),
+                }, transStr('tryhackx-homepage-blocks.forum.captcha_close')),
             ]),
         ]);
-    }
-
-    transStr(key) {
-        const result = app.translator.trans(key);
-        if (Array.isArray(result)) {
-            return result.map((item) => (typeof item === 'string' ? item : '')).join('');
-        }
-        return String(result || '');
     }
 
     loadRecaptchaScript() {

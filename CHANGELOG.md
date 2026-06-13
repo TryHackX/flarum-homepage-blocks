@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.5] - 2026-06-13
+
+Privacy + code-quality patch from a third-party review pass. **No database
+migrations** (PHP + frontend — `composer update`, `php flarum cache:clear`, and
+the rebuilt `js/dist` are included).
+
+### Security / privacy
+- **The external-stats proxy URL is no longer exposed to visitors.**
+  `external_stats_url` was serialized into the public forum payload via
+  `serializeToForum`, yet no forum-side code reads it (the admin form edits it
+  through the admin settings API, and the controller reads the setting
+  server-side). It is now dropped from the forum payload, so the admin-configured
+  proxy / tracker URL — which can reveal a private IP:port — is no longer handed
+  to every guest. `external_stats_native_url` was never serialized and stays
+  server-only.
+
+### Changed
+- **De-duplicated the `transStr()` helper.** The identical helper (coerces
+  `app.translator.trans()` output to a plain string) was copy-pasted into
+  `TrackerStats`, `AdvancedFilters` **and** `CaptchaModal`; it now lives in
+  `js/src/forum/utils/trans.js` and is imported by all three.
+
+### Notes — review suggestions deliberately not applied
+- **reCAPTCHA "treat a timeout as a soft pass" / verify asynchronously** —
+  rejected on **security** grounds: an auth gate must fail closed; returning an
+  optimistic `ok` before Google confirms the token would let anyone bypass
+  reCAPTCHA by inducing a timeout. The 2.1.4 connect-timeout already bounds the
+  worker-stall case; the total timeout stays generous to avoid denying legitimate
+  users on a slow-but-reachable Google.
+- **Raw cURL → Laravel HTTP client** — `illuminate/http` is **not installed** in
+  Flarum 2.x (the class doesn't exist); not adopted.
+- **`Illuminate\Filesystem` for the rate-limiter** — needs `flock` + atomic
+  `rename` the abstraction doesn't expose; kept native (the review now agrees the
+  lock is justified).
+- **Reflection on core's `$rules`** ([FieldLengthModifier](src/Api/FieldLengthModifier.php))
+  — there is no public rule-removal API in core, so this stays; the coupling is
+  already documented in the class and degrades safely to core defaults if core
+  changes.
+- **Keyset-random for the random-discussion pick** — not adopted: it biases the
+  distribution on id-gapped tables, and the current `offset` pick is correct and
+  fast enough at this scale.
+
 ## [2.1.4] - 2026-06-12
 
 Small maintainability + robustness patch from a third-party review pass.
