@@ -22,6 +22,9 @@ use Flarum\Settings\SettingsRepositoryInterface;
  */
 class FieldLengthModifier
 {
+    /** Strażnik: ostrzeżenie o nieudanej refleksji logujemy raz na proces (patrz catch w replaceMinMax). */
+    private static bool $reflectionFailureLogged = false;
+
     public function __construct(
         protected SettingsRepositoryInterface $settings
     ) {}
@@ -91,6 +94,22 @@ class FieldLengthModifier
             }
         } catch (\Throwable $e) {
             // Reflection zawiodła (np. zmiana schematu rdzenia) — zachowaj pole bez zmian.
+            // Loguj RAZ na proces (metoda biegnie per pole każdej dyskusji/posta, więc bez
+            // strażnika zalałoby logi), żeby ciche wyłączenie limitów długości było
+            // wykrywalne dla operatora zamiast „po cichu" przestać działać (audyt #5).
+            if (! self::$reflectionFailureLogged) {
+                self::$reflectionFailureLogged = true;
+                try {
+                    resolve(\Psr\Log\LoggerInterface::class)->warning(
+                        '[tryhackx-homepage-blocks] Nie udało się nadpisać reguł długości pola '
+                        . '(Reflection na HasValidationRules::$rules zawiodła — możliwa zmiana rdzenia '
+                        . 'Flarum). Limity długości tytułu/treści mogą nie być egzekwowane.',
+                        ['exception' => $e]
+                    );
+                } catch (\Throwable $ignored) {
+                    // logowanie jest best-effort — nie wywracajmy serializacji pola
+                }
+            }
         }
 
         return $field;

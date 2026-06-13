@@ -209,22 +209,12 @@ class RecaptchaGuard
 
         $version = $this->settings->get('tryhackx-homepage-blocks.recaptcha_version') ?: 'v3';
 
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'https://www.google.com/recaptcha/api/siteverify');
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+        $response = $this->postSiteverify(http_build_query([
             'secret' => $secretKey,
             'response' => $token,
         ]));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        // Ogranicz fazę połączenia osobno — gdy siteverify jest nieosiągalne,
-        // worker PHP zwalnia się po ~5 s zamiast czekać pełny timeout (audyt #4).
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-        $response = curl_exec($ch);
-        curl_close($ch);
 
-        if (!$response) {
+        if ($response === null) {
             return false;
         }
 
@@ -241,6 +231,54 @@ class RecaptchaGuard
         }
 
         return true;
+    }
+
+    /**
+     * POST do siteverify Google: cURL (z limitami connect/total), a gdy cURL jest
+     * niedostępny — fallback na file_get_contents ze stream context. Mirror
+     * defensywnego wzorca z {@see \TryHackX\HomepageBlocks\Api\Controller\TrackerStatsController::fetchRaw()}
+     * (audyt #9): wcześniej `curl_init()` bez guardu na zahartowanym PHP (cURL
+     * wyłączony) rzucało `TypeError` w `curl_setopt(false, …)` → niewyłapany 500.
+     * Zwraca treść odpowiedzi albo null (→ verifyToken fail-closed).
+     */
+    protected function postSiteverify(string $body): ?string
+    {
+        $url = 'https://www.google.com/recaptcha/api/siteverify';
+
+        if (function_exists('curl_init')) {
+            try {
+                $ch = curl_init();
+                if ($ch !== false) {
+                    curl_setopt($ch, CURLOPT_URL, $url);
+                    curl_setopt($ch, CURLOPT_POST, true);
+                    curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                    // Osobny limit fazy połączenia — gdy siteverify jest nieosiągalne,
+                    // worker zwalnia się po ~5 s zamiast czekać pełny timeout (audyt #4).
+                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+                    $response = curl_exec($ch);
+                    curl_close($ch);
+                    if ($response !== false && $response !== '') {
+                        return $response;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // przejdź do fallbacku
+            }
+        }
+
+        // Fallback bez cURL — POST przez stream context (fail-closed gdy i to padnie).
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
+                'content' => $body,
+                'timeout' => 10,
+            ],
+        ]);
+        $response = @file_get_contents($url, false, $context);
+        return ($response !== false && $response !== '') ? $response : null;
     }
 
     /**

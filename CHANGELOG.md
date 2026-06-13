@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.7] - 2026-06-13
+
+Defensive hardening from a third-party review pass. **No database migrations, no
+frontend changes** (PHP only — `composer update` + `php flarum cache:clear`).
+
+### Robustness
+- **reCAPTCHA verification no longer assumes cURL is available.** `verifyToken()`
+  now routes its `siteverify` POST through a new `postSiteverify()` helper that
+  guards `curl_init()` with `function_exists()` (and a `$ch !== false` check) and
+  falls back to a `file_get_contents` POST via stream context — mirroring the
+  pattern already used in `TrackerStatsController::fetchRaw()`. On a hardened PHP
+  build with the cURL extension disabled, the old code called
+  `curl_setopt(false, …)` and raised an unhandled `TypeError` (HTTP 500); it now
+  degrades gracefully and still verifies. Fail-closed behaviour on total failure
+  is preserved (an unverifiable token is rejected).
+- **A silently-broken field-length override is now logged.** If the Reflection
+  that `FieldLengthModifier` uses to relax core's `min:`/`max:` validation rules
+  ever fails (e.g. a future Flarum core refactor of the internal `$rules`
+  property), it now emits a single warning to the log (once per process) instead
+  of silently falling back to core defaults with no signal.
+
+### Notes — review findings not acted on
+- **"Missing source file `HomepageMainBlock.js`" is a false positive.** The file
+  is committed (since 2.0.1), present on `origin/main` and `origin/flarum-2`,
+  correctly cased, and a clean `git archive` checkout of `HEAD` rebuilds with
+  `npm run build` successfully. The source tree is reproducible; nothing to fix.
+- Re-raised items kept as-is for reasons already documented: file-based
+  limiter/cache (single-node by design; relies on `flock` + atomic `rename`),
+  OFFSET-based random pick (the keyset alternative biases the distribution on
+  id-gapped tables), `resolve()` in `extend.php`, native filesystem I/O, and the
+  TypeScript migration. `preflightCheck()` keeps using `fetch` deliberately, so
+  the expected `403`/`429` pre-flight responses don't trip Flarum's global
+  request-error handling.
+
+## [2.1.6] - 2026-06-13
+
+Tag-only release — identical in content to 2.1.5 (version-tracking bump, no code
+changes).
+
 ## [2.1.5] - 2026-06-13
 
 Privacy + code-quality patch from a third-party review pass. **No database
