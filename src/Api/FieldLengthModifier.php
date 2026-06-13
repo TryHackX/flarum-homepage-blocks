@@ -3,6 +3,7 @@
 namespace TryHackX\HomepageBlocks\Api;
 
 use Flarum\Settings\SettingsRepositoryInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Nadpisuje reguły walidacji długości pól `title` / `content` na zasobach API
@@ -26,7 +27,8 @@ class FieldLengthModifier
     private static bool $reflectionFailureLogged = false;
 
     public function __construct(
-        protected SettingsRepositoryInterface $settings
+        protected SettingsRepositoryInterface $settings,
+        protected LoggerInterface $logger
     ) {}
 
     /**
@@ -100,7 +102,7 @@ class FieldLengthModifier
             if (! self::$reflectionFailureLogged) {
                 self::$reflectionFailureLogged = true;
                 try {
-                    resolve(\Psr\Log\LoggerInterface::class)->warning(
+                    $this->logger->warning(
                         '[tryhackx-homepage-blocks] Nie udało się nadpisać reguł długości pola '
                         . '(Reflection na HasValidationRules::$rules zawiodła — możliwa zmiana rdzenia '
                         . 'Flarum). Limity długości tytułu/treści mogą nie być egzekwowane.',

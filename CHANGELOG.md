@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.8] - 2026-06-13
+
+Small convention fix from a third-party review pass. **No database migrations, no
+frontend changes** (PHP only — `composer update` + `php flarum cache:clear`).
+
+### Changed
+- **`FieldLengthModifier` receives its logger via constructor injection** instead
+  of the `resolve(\Psr\Log\LoggerInterface::class)` service-locator call inside the
+  catch block that was introduced in 2.1.7. Behaviour is unchanged (still a single
+  once-per-process warning if the Reflection ever fails); the dependency is now
+  declarative and the container auto-wires it (the class is built via
+  `resolve(FieldLengthModifier::class)` in `extend.php`).
+
+### Notes — review findings not acted on
+- **Multi-server points/stats storage (HIGH)** — a known, deliberate **single-node
+  design**. The per-IP bucket relies on `flock` + atomic `rename`, which require a
+  local filesystem; switching to `Illuminate\Cache` would *not* fix multi-server
+  with the default `file` driver and would drop the atomicity guarantees. Already
+  documented as a single-node limitation in the README; operators running multiple
+  app servers should front it with a shared store (Redis / DB).
+- **Reflection coupling in `FieldLengthModifier` (HIGH)** — there is no public
+  core API to remove a validation rule, so Reflection is the only way to *relax*
+  core's `min:`/`max:` limits. It is guarded, degrades to core defaults, and logs
+  once (2.1.7). A core `removeRule()` API / a CI shape-assertion test are out of
+  scope for this extension.
+- **`TrackerStatsController` size / SRP** — the class is cohesive (all stats
+  concerns) and security-sensitive (guard + single-flight); an unsolicited split
+  into 3 classes carries regression risk with no functional benefit here, so it is
+  left as-is.
+- **`resolve()` in `extend.php` field callbacks** — Flarum's `->field()` closures
+  are not handed the container, so resolving the modifier inside them is the
+  idiomatic choice; kept.
+
 ## [2.1.7] - 2026-06-13
 
 Defensive hardening from a third-party review pass. **No database migrations, no
