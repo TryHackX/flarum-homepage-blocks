@@ -373,28 +373,53 @@ class PointsManager
         $ttl = max(86400, $this->getBlockSeconds() * 4);
         $cutoff = time() - $ttl;
 
+        // Strumieniowy skan przez readdir — NIE glob(). glob() materializuje CAŁĄ
+        // listę plików naraz; na katalogu z setkami tysięcy kubełków (dużo IP / ruch
+        // botów) to ogromna alokacja i blokujące I/O. readdir czyta wpis po wpisie
+        // (O(1) pamięci), a twarde limity na przebieg gwarantują, że samo GC nie
+        // stanie się spike'iem I/O na dużym forum. Pliki przeterminowane, których nie
+        // dosięgniemy w danym przebiegu, sprzątną kolejne uruchomienia (GC pali się
+        // ~2% zapisów, a readdir zwykle zwraca starsze wpisy najpierw). (audyt: glob w GC)
+        // Twardy limit pracy na przebieg, NIEZALEŻNY od rozmiaru katalogu — to on
+        // spłaszcza spike I/O (każdy badany plik = jeden stat/filemtime). Przy losowej
+        // kolejności nazw (sha1) skan próbki i tak usuwa stale proporcjonalnie, a GC
+        // pali się ~2% zapisów, więc backlog i tak się domyka przez kolejne przebiegi.
+        $maxScan = 2000;    // ile wpisów zbadać na jeden przebieg (ogranicza stat-y)
+        $maxDelete = 500;   // ile maksymalnie usunąć na jeden przebieg
+
         try {
             $dir = $this->getDir();
-            $files = @glob($dir . '/*.json');
-            if (!is_array($files)) {
-                $files = [];
+            $dh = @opendir($dir);
+            if ($dh === false) {
+                return;
             }
-            // Osierocone pliki-blokady (.json.lock) też sprzątamy — glob '*.json'
-            // ich nie łapie, a po dniach bezczynności i tak nic nie znaczą.
-            $locks = @glob($dir . '/*.json.lock');
-            if (is_array($locks)) {
-                $files = array_merge($files, $locks);
-            }
+
+            $scanned = 0;
             $deleted = 0;
-            foreach ($files as $file) {
-                $mtime = @filemtime($file);
-                if ($mtime !== false && $mtime < $cutoff) {
-                    @unlink($file);
-                    // Bezpiecznik: nie usuwaj więcej niż 500 plików na przebieg.
-                    if (++$deleted >= 500) {
+            try {
+                while (($entry = readdir($dh)) !== false) {
+                    if ($entry === '.' || $entry === '..') {
+                        continue;
+                    }
+                    if (++$scanned > $maxScan) {
                         break;
                     }
+                    // Tylko nasze pliki: {hash}.json oraz osierocone {hash}.json.lock.
+                    if (!str_ends_with($entry, '.json') && !str_ends_with($entry, '.json.lock')) {
+                        continue;
+                    }
+
+                    $file = $dir . '/' . $entry;
+                    $mtime = @filemtime($file);
+                    if ($mtime !== false && $mtime < $cutoff) {
+                        @unlink($file);
+                        if (++$deleted >= $maxDelete) {
+                            break;
+                        }
+                    }
                 }
+            } finally {
+                closedir($dh);
             }
         } catch (\Throwable $e) {
             // sprzątanie jest best-effort — błędy ignorujemy

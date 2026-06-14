@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.10] - 2026-06-14
+
+Scalability patch from a third-party review pass. **No database migrations, no
+frontend changes** (PHP only — `composer update` + `php flarum cache:clear`).
+
+### Performance
+- **The per-IP bucket garbage collector no longer uses `glob()`.**
+  `maybeCollectGarbage()` previously enumerated the whole `tryhackx_points/`
+  directory with `glob('*.json')` (plus a second glob for `.json.lock`),
+  materialising the entire file list in memory before deleting up to 500 stale
+  entries. On a forum holding hundreds of thousands of per-IP bucket files (heavy
+  bot / many-distinct-IP traffic) that single allocation + full scan was a
+  blocking I/O spike. It now streams entries via `opendir`/`readdir` (O(1) memory)
+  and caps each run at **2000 entries scanned + 500 deleted**, so the GC cost is
+  bounded regardless of directory size. Stale files outside a given run's window
+  are reclaimed by later runs (GC fires ~2 % of writes, and the `sha1`-named files
+  are uniformly distributed, so each pass removes stale entries proportionally).
+  (audit: `glob()` in GC)
+
+### Notes
+- This is a large-scale concern only; small / single-node forums behave the same
+  either way (the directory holds at most a handful of files there).
+
 ## [2.1.9] - 2026-06-14
 
 Robustness patch from a third-party review pass. **No database migrations, no
