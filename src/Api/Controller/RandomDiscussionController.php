@@ -54,15 +54,38 @@ class RandomDiscussionController implements RequestHandlerInterface
                 $query->whereIn('tags.id', $tagIds);
             });
 
-        // Losowanie bez ORDER BY RAND() (pełny filesort na dużych tabelach):
-        // policz pasujące i pobierz losowy offset przy deterministycznym porządku.
-        $count = (clone $base)->count();
-        if ($count === 0) {
+        // Losowanie RÓWNOMIERNE bez skanu OFFSET (który na dużym tagu przegląda i
+        // odrzuca ~offset wierszy na każde kliknięcie). Próbkowanie z odrzuceniem po
+        // kluczu głównym: losujemy id z [min,max] i przyjmujemy TYLKO realne trafienie.
+        // Rozkład jest dowodliwie jednostajny (każde istniejące id ma równe szanse), a
+        // usunięte/ukryte/niewidoczne — odfiltrowane w $base — NIGDY nie wracają (nie
+        // pasują, więc próbujemy dalej). Dla typowego, gęstego tagu sukces w 1 próbie i
+        // jest to O(log n) po PK. Skala: nie rośnie z liczbą dyskusji w tagu.
+        $minId = (clone $base)->min('id');
+        if ($minId === null) {
             return new JsonResponse(['error' => 'No discussions found for this tag'], 404);
         }
+        $minId = (int) $minId;
+        $maxId = (int) (clone $base)->max('id');
 
-        $offset = random_int(0, $count - 1);
-        $discussion = $base->orderBy('id')->offset($offset)->first();
+        $discussion = null;
+        $attempts = $maxId > $minId ? 10 : 1;
+        for ($i = 0; $i < $attempts; $i++) {
+            $candidate = random_int($minId, $maxId);
+            $discussion = (clone $base)->where('id', '=', $candidate)->first();
+            if ($discussion) {
+                break;
+            }
+        }
+
+        // Fallback dla skrajnie rzadkiego tagu (dużo dziur w id) lub pecha w próbkowaniu —
+        // wciąż RÓWNOMIERNY: losowy offset. Wyzwalany rzadko, więc skan nie boli.
+        if (!$discussion) {
+            $count = (clone $base)->count();
+            if ($count > 0) {
+                $discussion = $base->orderBy('id')->offset(random_int(0, $count - 1))->first();
+            }
+        }
 
         if (!$discussion) {
             return new JsonResponse(['error' => 'No discussions found for this tag'], 404);

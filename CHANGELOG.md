@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.11] - 2026-06-14
+
+Scalability + privacy patch from a third-party review pass. **No database
+migrations, no frontend changes** (PHP only — `composer update` +
+`php flarum cache:clear`).
+
+### Performance
+- **Random-discussion picking no longer does an `OFFSET` scan.**
+  `RandomDiscussionController` previously ran
+  `orderBy('id')->offset(random(0, count))->first()`, which makes MySQL scan and
+  discard up to `offset` filtered rows on every click — O(n) on large tags. It now
+  uses **rejection sampling over the primary key**: draw a random id in
+  `[MIN(id), MAX(id)]` of the (visibility- and tag-filtered) set and accept only an
+  exact match — O(log n) per attempt, ~1 attempt for a dense tag — with a uniform
+  `OFFSET` fallback for very sparse tags or unlucky draws. The distribution is
+  **provably uniform**, and deleted / hidden / out-of-tag discussions are never
+  returned (they simply don't match). Verified: 120 draws over a 5-discussion tag
+  came out 26/25/24/23/22, and the id-gaps never appeared. (audit #1)
+
+### Security
+- **The reCAPTCHA token is no longer read from the query string.**
+  `RecaptchaGuard::extractToken()` now accepts the token only via the
+  `X-Recaptcha-Token` header (primary since 2.1.3) and the POST body. The
+  `?recaptcha_token=` query read — dead since the frontend went header-only in
+  2.1.3, and a path by which a one-time token could land in server/proxy access
+  logs — has been removed. (audit #5)
+
+### Notes — re-examined under a large-forum lens
+- **Multi-node rate-limit / stats storage** stays file-based on purpose: it is
+  correct and fast on a single server (including a large one — millions of users
+  on one host), and `flock` + atomic `rename` require a local filesystem. True
+  multi-node (load-balanced across hosts with no shared FS) needs a shared atomic
+  store (Redis, or a DB-backed bucket) — a deliberate, separately-tested change
+  that also requires that infrastructure, not a blind retrofit of a
+  security-critical limiter. Documented as a single-node design in the README.
+- `resolve()` in field callbacks, controller / admin file sizes, JSX vs `m()`,
+  TypeScript, and `preflightCheck`'s `fetch` are code-style / organisation items,
+  not throughput bottlenecks at any scale; left as-is.
+
 ## [2.1.10] - 2026-06-14
 
 Scalability patch from a third-party review pass. **No database migrations, no

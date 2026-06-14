@@ -186,14 +186,15 @@ class RecaptchaGuard
         if ($header !== '') {
             return $header;
         }
-        // Wsteczna zgodność: body POST, a w ostateczności query string (starszy
-        // frontend mógł jeszcze dopinać ?recaptcha_token=...).
+        // Zapasowo body (np. żądanie POST). Query string celowo NIE jest już czytany:
+        // token w URL-u trafia do logów dostępu serwera/proxy, a frontend od 2.1.3
+        // wysyła go wyłącznie nagłówkiem (hashowane assety wykluczają zalegający
+        // stary JS), więc odczyt z query był martwym kodem i wektorem wycieku (audyt).
         $body = $request->getParsedBody();
         if (is_array($body) && isset($body['recaptcha_token'])) {
             return (string) $body['recaptcha_token'];
         }
-        $token = $request->getQueryParams()['recaptcha_token'] ?? null;
-        return $token ? (string) $token : null;
+        return null;
     }
 
     /**
