@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.9] - 2026-06-14
+
+Robustness patch from a third-party review pass. **No database migrations, no
+frontend changes** (PHP only — `composer update` + `php flarum cache:clear`).
+
+### Robustness
+- **`fetchRaw()` now guards a `curl_init()` failure.** It checks `$ch !== false`
+  before calling `curl_setopt()` and catches `\Throwable` (not just `\Exception`),
+  matching `RecaptchaGuard::postSiteverify()`. Previously, if `curl_init()`
+  returned `false` (e.g. resource exhaustion) on a PHP 8 build,
+  `curl_setopt(false, …)` raised a `TypeError` — an `\Error`, which the
+  `\Exception`-only catch did not catch — propagating as an HTTP 500. It now falls
+  through to the `file_get_contents` path. (audit #1)
+- **Internal stats cache is now single-flighted.** `handleInternal()` refreshes
+  through a new `refreshInternalSingleFlight()` (`LOCK_EX|LOCK_NB` on a `.lock`
+  file), mirroring the external-stats path. Under a concurrent cold/expired cache
+  (e.g. right after a deploy or every TTL tick under load) a single worker
+  recomputes the 5–7 `COUNT`/`SUM`/`AVG` aggregates while the others serve stale
+  data (or, only on a truly cold first load, compute best-effort) instead of every
+  worker hitting the database simultaneously. (audit #3)
+
+### Notes — review findings not acted on
+- File-based limiter/cache multi-node (HIGH) — kept: deliberate single-node design
+  (relies on `flock` + atomic `rename`; the default `file` cache driver wouldn't
+  fix multi-node anyway). Documented in the README.
+- `resolve()` in `extend.php` field callbacks — kept: `->field()` closures aren't
+  handed the container, so resolving there is idiomatic.
+- `admin/index.js` size / `TrackerInfo.js` JSX — structural/style only, no
+  functional impact. (The "only TrackerInfo uses JSX" claim is also inaccurate —
+  `CustomLinks.js` uses JSX too, so it's a mixed-style codebase, not a lone file.)
+
 ## [2.1.8] - 2026-06-13
 
 Small convention fix from a third-party review pass. **No database migrations, no

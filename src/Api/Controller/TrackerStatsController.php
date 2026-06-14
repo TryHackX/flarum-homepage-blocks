@@ -52,10 +52,11 @@ class TrackerStatsController implements RequestHandlerInterface
         // Statystyki wewnętrzne to globalne agregaty (count/sum/avg) — identyczne
         // dla każdego widza, więc krótko cache'ujemy je w pliku. Bez tego 5–7
         // zapytań agregujących szło do bazy przy KAŻDYM zimnym żądaniu (audyt C1).
+        // Przy cache-miss odświeżamy pod single-flight (flock), żeby równoległe
+        // workery nie liczyły wszystkich agregatów naraz (audyt #3).
         $stats = $this->getCachedInternalStats(self::INTERNAL_STATS_TTL);
         if ($stats === null) {
-            $stats = $this->computeInternalStats();
-            $this->setCachedInternalStats($stats);
+            $stats = $this->refreshInternalSingleFlight();
         }
 
         return new JsonResponse([
@@ -103,6 +104,48 @@ class TrackerStatsController implements RequestHandlerInterface
         }
 
         return $stats;
+    }
+
+    /**
+     * Policz statystyki wewnętrzne pod blokadą flock (pojedynczy „compute") —
+     * mirror {@see refreshExternalSingleFlight}. Bez tego przy zimnym/wygasłym
+     * cache każdy worker odpalałby 5–7 agregatów naraz (audyt #3). Zawsze zwraca
+     * tablicę (UI wymaga danych): worker bez locka serwuje stale (do 1h), a gdy
+     * stale brak (pierwszy zimny load) — liczy best-effort.
+     */
+    protected function refreshInternalSingleFlight(): array
+    {
+        $lockPath = $this->getInternalCacheFilePath() . '.lock';
+        $fp = @fopen($lockPath, 'c');
+
+        if ($fp === false) {
+            // Nie da się założyć locka — policz best-effort.
+            $data = $this->computeInternalStats();
+            $this->setCachedInternalStats($data);
+            return $data;
+        }
+
+        if (!flock($fp, LOCK_EX | LOCK_NB)) {
+            // Inny worker już liczy — nie czekamy: serwuj stale (do 1h), a gdy go
+            // brak (pierwszy zimny load), policz best-effort, by UI nie dostało pustki.
+            fclose($fp);
+            return $this->getCachedInternalStats(3600) ?? $this->computeInternalStats();
+        }
+
+        try {
+            // Double-check: ktoś mógł odświeżyć cache zanim dostaliśmy lock.
+            $again = $this->getCachedInternalStats(self::INTERNAL_STATS_TTL);
+            if ($again !== null) {
+                return $again;
+            }
+
+            $data = $this->computeInternalStats();
+            $this->setCachedInternalStats($data);
+            return $data;
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+        }
     }
 
     // ────────────── Statystyki zewnętrzne (OpenTracker / proxy) ──────────────
@@ -306,25 +349,29 @@ class TrackerStatsController implements RequestHandlerInterface
         if (function_exists('curl_init')) {
             try {
                 $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 12);
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
-                curl_setopt($ch, CURLOPT_USERAGENT, $userAgent);
-                curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-                curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
-                if (defined('CURLOPT_IPRESOLVE')) {
-                    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-                }
-                $response = curl_exec($ch);
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
+                // Guard na false (np. wyczerpanie zasobów) — bez tego curl_setopt(false, …)
+                // rzuca TypeError (\Error). Spójne z postSiteverify() (audyt #1).
+                if ($ch !== false) {
+                    curl_setopt($ch, CURLOPT_URL, $url);
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
+                    curl_setopt($ch, CURLOPT_USERAGENT, $userAgent);
+                    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+                    curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
+                    if (defined('CURLOPT_IPRESOLVE')) {
+                        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+                    }
+                    $response = curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
 
-                if ($response !== false && $httpCode >= 200 && $httpCode < 400) {
-                    return $response;
+                    if ($response !== false && $httpCode >= 200 && $httpCode < 400) {
+                        return $response;
+                    }
                 }
-            } catch (\Exception $e) {
-                // przejdź do fallbacku
+            } catch (\Throwable $e) {
+                // przejdź do fallbacku (łapiemy też \Error, np. TypeError)
             }
         }
 
