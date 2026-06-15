@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.12] - 2026-06-14
+
+Coordinated robustness fix with `tryhackx/flarum-topic-rating` 2.4.11. **No database
+migrations, no frontend changes** (PHP only — `composer update` +
+`php flarum cache:clear`).
+
+### Fixed
+- **The "Steam DB" rating sort is now table-prefix safe.** `SteamRatingSort` builds
+  a raw `ORDER BY` expression over `discussions.rating_average` / `rating_count`; the
+  query builder prefixes column/`orderBy` references itself, but **not** raw SQL, so
+  on an install configured with a DB table prefix the expression referenced a
+  non-existent `discussions` table. `SteamRatingSort::expression()` now takes the
+  (already-prefixed) table name, and both call sites (`apply()` and
+  `SteamRatingSortMutator`) pass `getTablePrefix() . 'discussions'`. No effect on the
+  default empty-prefix install — verified the sort order is unchanged; fixes prefixed
+  installs. Mirrors the same fix in topic-rating's `RatingRecalculator` (2.4.11).
+
 ## [2.1.11] - 2026-06-14
 
 Scalability + privacy patch from a third-party review pass. **No database

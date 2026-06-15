@@ -37,9 +37,14 @@ class SteamRatingSortMutator
 
             $direction = (is_string($order) && strtolower($order) === 'asc') ? 'asc' : 'desc';
 
-            $state->getQuery()
+            $query = $state->getQuery();
+            // Raw ORDER BY expression must use the prefixed table name (the query
+            // builder prefixes column/orderBy refs itself, but not raw SQL).
+            $prefix = $query->getModel()->getConnection()->getTablePrefix();
+
+            $query
                 ->reorder()
-                ->orderByRaw(SteamRatingSort::expression().' '.$direction)
+                ->orderByRaw(SteamRatingSort::expression($prefix . 'discussions').' '.$direction)
                 ->orderBy('discussions.id', 'desc');
 
             return;

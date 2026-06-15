@@ -82,19 +82,25 @@ class SteamRatingSort extends Sort
     {
         $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
 
-        $query->orderByRaw(self::expression().' '.$direction);
+        $prefix = method_exists($query, 'getModel') ? $query->getModel()->getConnection()->getTablePrefix() : '';
+        $query->orderByRaw(self::expression($prefix . 'discussions').' '.$direction);
     }
 
     /**
      * SteamDB-style confidence-adjusted rating, as an ORDER BY expression.
      * Shared with the Search mutator so both code paths agree.
+     *
+     * $table is the (already table-prefixed) discussions table name. It's a trusted
+     * value — the configured prefix + a hardcoded name, never user input — so
+     * interpolating it into this raw expression is safe. The default keeps the
+     * unprefixed name for the common empty-prefix install.
      */
-    public static function expression(): string
+    public static function expression(string $table = 'discussions'): string
     {
-        return '(case when discussions.rating_count > 0 then '
-             . '(discussions.rating_average / 5.0) '
-             . '- ((discussions.rating_average / 5.0) - 0.5) '
-             . '* power(discussions.rating_count + 1, -0.30103) '
+        return "(case when {$table}.rating_count > 0 then "
+             . "({$table}.rating_average / 5.0) "
+             . "- (({$table}.rating_average / 5.0) - 0.5) "
+             . "* power({$table}.rating_count + 1, -0.30103) "
              . 'else -1 end)';
     }
 }
