@@ -3,6 +3,7 @@
 namespace TryHackX\HomepageBlocks\Cache;
 
 use Flarum\Foundation\Paths;
+use Psr\Log\LoggerInterface;
 
 /**
  * Natywny magazyn plikowy — domyślna implementacja {@see Store}.
@@ -27,8 +28,12 @@ class FileStore implements Store
     private const GC_MAX_SCAN = 2000;
     private const GC_MAX_DELETE = 500;
 
+    /** Nieudane założenie blokady logujemy RAZ na proces (patrz withLock fail-closed). */
+    private static bool $lockFailureLogged = false;
+
     public function __construct(
-        protected Paths $paths
+        protected Paths $paths,
+        protected ?LoggerInterface $logger = null
     ) {}
 
     public function read(string $key): ?array
@@ -79,16 +84,30 @@ class FileStore implements Store
         $lockPath = $this->fileFor($key) . '.lock';
         $fp = @fopen($lockPath, 'c');
         if ($fp === false) {
-            // Nie da się założyć locka (np. brak praw) — best-effort bez niego.
+            // Nie udało się otworzyć pliku locka (zwykle zepsute uprawnienia storage).
+            //  - wait=false (single-flight cache): best-effort bez locka — najgorszy
+            //    skutek to zdublowany compute/fetch, nie luka.
+            //  - wait=true (limiter): NIE biegniemy bez locka — to byłby bypass TOCTOU
+            //    (dwa workery zdejmują z tego samego salda). Fail-closed: zwróć
+            //    bezpieczny fallback (deny). (audyt H2)
+            if ($wait) {
+                $this->logLockFailure('fopen');
+                return $fallback;
+            }
             return $fn();
         }
 
         $flags = $wait ? LOCK_EX : (LOCK_EX | LOCK_NB);
         $locked = @flock($fp, $flags);
 
-        if (!$locked && !$wait) {
-            // Single-flight: ktoś już trzyma blokadę — nie czekamy.
+        if (!$locked) {
             @fclose($fp);
+            // wait=false: ktoś trzyma blokadę (single-flight) — normalne, serwujemy
+            // stale wyżej. wait=true: LOCK_EX blokuje aż do zdobycia, więc !$locked to
+            // BŁĄD flocka → też fail-closed dla limitera (audyt H2).
+            if ($wait) {
+                $this->logLockFailure('flock');
+            }
             return $fallback;
         }
 
@@ -99,6 +118,25 @@ class FileStore implements Store
                 @flock($fp, LOCK_UN);
             }
             @fclose($fp);
+        }
+    }
+
+    /** Loguje nieudane założenie blokady RAZ na proces (fail-closed limitera, audyt H2). */
+    private function logLockFailure(string $stage): void
+    {
+        if (self::$lockFailureLogged) {
+            return;
+        }
+        self::$lockFailureLogged = true;
+        if ($this->logger) {
+            try {
+                $this->logger->warning(
+                    '[tryhackx-homepage-blocks] FileStore: nie udało się założyć blokady ('
+                    . $stage . ') magazynu limitera — żądanie odrzucone (fail-closed). '
+                    . 'Najpewniej uprawnienia katalogu storage/cache/tryhackx_store.'
+                );
+            } catch (\Throwable $ignored) {
+            }
         }
     }
 

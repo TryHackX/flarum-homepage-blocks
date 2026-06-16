@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-06-16
+
+> Follow-up hardening from the next audit round (green check, non-blocking). **PHP
+> only** — no migrations, no frontend change: `composer update` + `php flarum cache:clear`.
+
+### Security
+- **The rate limiter now fails *closed* when its lock cannot be acquired.**
+  `FileStore` / `CacheStore::withLock()` previously ran the callback *unlocked* if the
+  `.lock` file couldn't be opened (or the cache lock timed out) — on the `wait=true`
+  limiter path two concurrent workers could then read the same bucket balance and each
+  deduct, weakening the per-IP limit. The limiter path now returns a safe fallback
+  (deny: `charge` → `ok=false`) and logs once per process instead of running unlocked.
+  The single-flight stats path (`wait=false`) keeps best-effort behaviour (worst case:
+  one duplicate compute, no security impact). Normal operation is unchanged — this only
+  triggers on broken storage permissions / lock-provider failure. (audit H2)
+
+### Changed
+- **`DateIntervalFilter` and `RatingFilter` now share `AbstractDateIntervalFilter`**
+  (abstract `getFilterKey()` + `getColumn()`). The two were byte-identical apart from
+  the key and the column (`created_at` vs `last_rated_at`); the interval logic lives in
+  one place now. No behavioural change. (audit H4)
+
+### Notes
+- **Deliberately not changed:** the `HasValidationRules::$rules` Reflection
+  (`FieldLengthModifier`) — core exposes no public API to *relax* a min/max length
+  rule, so it stays, already mitigated by the admin warning flag (a core PR is the only
+  real fix, audit H1); `resolve()` in extend.php (already memoised — `??=` makes it
+  once-per-request, audit H5); raw `fetch()` in `preflightCheck` (intentional silent
+  403/429 handling, already commented, audit H7); plain JS / no TypeScript (whole
+  suite, audit H6); the random-discussion sampler (the rare sparse-tag worst case uses
+  indexed PK lookups — cutting attempts would make the OFFSET fallback fire *more*
+  often, audit H3).
+- Verified on `http://flarum.localhost/`: PHP lint clean; both interval filters (incl.
+  negated) → 200; the points limiter still charges down and blocks (2→1→0 → 429) on the
+  normal locked path.
+
 ## [2.2.0] - 2026-06-15
 
 Large-forum hardening pass (third-party review). Two themes: **bounded blocking**

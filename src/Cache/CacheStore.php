@@ -5,6 +5,7 @@ namespace TryHackX\HomepageBlocks\Cache;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository;
+use Psr\Log\LoggerInterface;
 
 /**
  * Współdzielony magazyn oparty na cache Flarum — używany TYLKO gdy skonfigurowany
@@ -33,8 +34,12 @@ class CacheStore implements Store
 
     private LockProvider $locks;
 
+    /** Nieudane założenie blokady logujemy RAZ na proces (patrz withLock fail-closed). */
+    private static bool $lockFailureLogged = false;
+
     public function __construct(
-        protected Repository $cache
+        protected Repository $cache,
+        protected ?LoggerInterface $logger = null
     ) {
         // Bezpieczne: provider tworzy CacheStore tylko gdy store JEST LockProviderem.
         $this->locks = $cache->getStore();
@@ -75,9 +80,28 @@ class CacheStore implements Store
             // Czekaj ograniczony czas, potem zwolnij blokadę.
             return $lock->block(self::LOCK_WAIT, $fn);
         } catch (LockTimeoutException $e) {
-            // Skrajna kontencja — best-effort bez locka (jak fallback FileStore),
-            // żeby limiter działał, a nie padał.
-            return $fn();
+            // Nie zdobyto blokady w czasie — NIE biegniemy bez niej (byłby bypass
+            // TOCTOU limitera). Fail-closed: zwróć bezpieczny fallback (deny). (audyt H2)
+            $this->logLockFailure();
+            return $fallback;
+        }
+    }
+
+    /** Loguje nieudane założenie blokady RAZ na proces (fail-closed limitera, audyt H2). */
+    private function logLockFailure(): void
+    {
+        if (self::$lockFailureLogged) {
+            return;
+        }
+        self::$lockFailureLogged = true;
+        if ($this->logger) {
+            try {
+                $this->logger->warning(
+                    '[tryhackx-homepage-blocks] CacheStore: przekroczono czas oczekiwania na '
+                    . 'blokadę magazynu limitera — żądanie odrzucone (fail-closed).'
+                );
+            } catch (\Throwable $ignored) {
+            }
         }
     }
 }

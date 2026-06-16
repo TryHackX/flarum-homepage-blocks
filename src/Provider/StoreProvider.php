@@ -9,6 +9,7 @@ use Illuminate\Cache\FileStore as IlluminateFileStore;
 use Illuminate\Cache\NullStore;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository;
+use Psr\Log\LoggerInterface;
 use TryHackX\HomepageBlocks\Cache\CacheStore;
 use TryHackX\HomepageBlocks\Cache\FileStore;
 use TryHackX\HomepageBlocks\Cache\Store;
@@ -33,7 +34,7 @@ class StoreProvider extends AbstractServiceProvider
     {
         $this->container->singleton(Store::class, function ($container) {
             // Ścieżka domyślna: natywny magazyn plikowy.
-            $fileStore = fn () => new FileStore($container->make(Paths::class));
+            $fileStore = fn () => new FileStore($container->make(Paths::class), $container->make(LoggerInterface::class));
 
             try {
                 $repo = $container->make('cache.store');
@@ -51,7 +52,7 @@ class StoreProvider extends AbstractServiceProvider
                     && !($underlying instanceof ArrayStore)
                     && !($underlying instanceof NullStore);
 
-                return $isShared ? new CacheStore($repo) : $fileStore();
+                return $isShared ? new CacheStore($repo, $container->make(LoggerInterface::class)) : $fileStore();
             } catch (\Throwable $e) {
                 // Cokolwiek pójdzie nie tak przy introspekcji cache — zostań przy plikach.
                 return $fileStore();

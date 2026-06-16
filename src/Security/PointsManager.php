@@ -147,7 +147,7 @@ class PointsManager
 
             $remaining = (int) $state['blocked_until'] - time();
             return max(0, $remaining);
-        });
+        }, true, 0); // fail-closed: brak locka → 0 (charge i tak zagrodzi) (audyt H2)
     }
 
     /**
@@ -163,7 +163,7 @@ class PointsManager
             $state['blocked_until'] = time() + $seconds;
             $this->writeState($ip, $state);
             return $seconds;
-        });
+        }, true, $seconds); // fail-closed: brak locka → zwróć zamierzony czas blokady (audyt H2)
     }
 
     /**
@@ -196,7 +196,7 @@ class PointsManager
             $state['ts'] = time();
             $this->writeState($ip, $state);
             return ['ok' => true, 'balance' => (float) $state['balance']];
-        });
+        }, true, ['ok' => false, 'balance' => 0.0]); // fail-closed: brak locka → DENY (audyt H2)
     }
 
     /**

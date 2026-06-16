@@ -2,44 +2,19 @@
 
 namespace TryHackX\HomepageBlocks\Search;
 
-use Carbon\Carbon;
-use Flarum\Search\Filter\FilterInterface;
-use Flarum\Search\SearchState;
-use Flarum\Search\ValidateFilterTrait;
-
 /**
  * Filters discussions by the time period in which they were rated.
  * Uses the `last_rated_at` column from tryhackx/flarum-topic-rating.
  */
-class RatingFilter implements FilterInterface
+class RatingFilter extends AbstractDateIntervalFilter
 {
-    use ValidateFilterTrait;
-
     public function getFilterKey(): string
     {
         return 'ratingInterval';
     }
 
-    public function filter(SearchState $state, string|array $value, bool $negate): void
+    protected function getColumn(): string
     {
-        $date = match ($this->asString($value)) {
-            'today' => Carbon::today(),
-            '1d' => Carbon::now()->subDay(),
-            '1w' => Carbon::now()->subWeek(),
-            '2w' => Carbon::now()->subWeeks(2),
-            '1m' => Carbon::now()->subMonth(),
-            '3m' => Carbon::now()->subMonths(3),
-            '6m' => Carbon::now()->subMonths(6),
-            '1y' => Carbon::now()->subYear(),
-            default => null,
-        };
-
-        if ($date) {
-            if ($negate) {
-                $state->getQuery()->where('last_rated_at', '<', $date);
-            } else {
-                $state->getQuery()->where('last_rated_at', '>=', $date);
-            }
-        }
+        return 'last_rated_at';
     }
 }
