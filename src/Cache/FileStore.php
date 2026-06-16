@@ -114,9 +114,9 @@ class FileStore implements Store
         try {
             return $fn();
         } finally {
-            if ($locked) {
-                @flock($fp, LOCK_UN);
-            }
+            // $locked jest tu zawsze true — gałąź `if (!$locked) return` wyżej kończy
+            // wcześniej, więc do `try` wchodzimy tylko z założoną blokadą.
+            @flock($fp, LOCK_UN);
             @fclose($fp);
         }
     }
@@ -142,6 +142,9 @@ class FileStore implements Store
 
     protected function dir(): string
     {
+        // Separator '/' celowo (nie DIRECTORY_SEPARATOR): PHP przyjmuje '/' na każdej
+        // platformie, a rdzeń Flarum buduje ścieżki storage tak samo (InstalledSite:
+        // $this->paths->storage.'/cache') — trzymamy się konwencji rdzenia.
         $dir = $this->paths->storage . '/cache/tryhackx_store';
         if (!is_dir($dir)) {
             @mkdir($dir, 0775, true);

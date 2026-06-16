@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-06-17
+
+> Minor cleanup from the audit follow-up (already green, non-blocking). **PHP only**
+> — no migrations, no frontend change: `composer update` + `php flarum cache:clear`.
+
+### Changed
+- **Removed a dead `if ($locked)` guard in `FileStore::withLock()`.** After the
+  fail-closed early return on lock-acquire failure, `$locked` is always true at the
+  `finally`, so the guard was unreachable — the unlock is now unconditional. No
+  behavioural change.
+- **Documented the deliberate `/` path separator in `FileStore`.** Flarum core builds
+  storage paths with `/` (e.g. `InstalledSite`: `$this->paths->storage.'/cache'`) and
+  PHP accepts `/` on every platform, so we keep `/` for consistency with core rather
+  than `DIRECTORY_SEPARATOR` (which would mismatch core's own style).
+
+### Notes
+- Unchanged (documented): the `HasValidationRules::$rules` Reflection (no public core
+  API to relax min/max — mitigated by the admin warning flag); `resolve()` in
+  extend.php (memoised, once-per-request); plain JS / no TypeScript.
+- Verified on `http://flarum.localhost/`: PHP lint clean; interval filters and the
+  points limiter (2→1→0 → 429) still work on the normal locked path.
+
 ## [2.2.1] - 2026-06-16
 
 > Follow-up hardening from the next audit round (green check, non-blocking). **PHP
