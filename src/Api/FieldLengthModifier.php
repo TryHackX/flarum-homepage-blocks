@@ -26,6 +26,9 @@ class FieldLengthModifier
     /** Strażnik: ostrzeżenie o nieudanej refleksji logujemy raz na proces (patrz catch w replaceMinMax). */
     private static bool $reflectionFailureLogged = false;
 
+    /** Ostatnio UTRWALONY stan refleksji (flaga ustawień). null = jeszcze nie zapisany w tym procesie. */
+    private static ?bool $reflectionStateRecorded = null;
+
     public function __construct(
         protected SettingsRepositoryInterface $settings,
         protected LoggerInterface $logger
@@ -94,11 +97,18 @@ class FieldLengthModifier
             if ($max !== null) {
                 $field->maxLength($max);
             }
+
+            // Refleksja zadziałała — wyczyść ewentualną „stałą" flagę awarii (np. po
+            // aktualizacji rdzenia, która znów udostępnia oczekiwaną strukturę reguł).
+            $this->recordReflectionState(true);
         } catch (\Throwable $e) {
-            // Reflection zawiodła (np. zmiana schematu rdzenia) — zachowaj pole bez zmian.
-            // Loguj RAZ na proces (metoda biegnie per pole każdej dyskusji/posta, więc bez
-            // strażnika zalałoby logi), żeby ciche wyłączenie limitów długości było
-            // wykrywalne dla operatora zamiast „po cichu" przestać działać (audyt #5).
+            // Reflection zawiodła (np. zmiana schematu rdzenia) — zachowaj pole bez zmian
+            // i podnieś WYKRYWALNY sygnał: (1) flaga ustawień, którą czyta panel admina,
+            // (2) log raz na proces. Metoda biegnie per pole każdej dyskusji/posta, więc
+            // jedno i drugie utrwalamy najwyżej raz na proces — bez tego ciche wyłączenie
+            // limitów długości było niezauważalne dla operatora (audyt #1/#5).
+            $this->recordReflectionState(false);
+
             if (! self::$reflectionFailureLogged) {
                 self::$reflectionFailureLogged = true;
                 try {
@@ -115,5 +125,33 @@ class FieldLengthModifier
         }
 
         return $field;
+    }
+
+    /**
+     * Utrwal stan ostatniej próby refleksji w fladze ustawień
+     * `…field_length_reflection_failed`, którą panel admina pokazuje jako ostrzeżenie.
+     *
+     * Zapis NAJWYŻEJ raz na proces i TYLKO gdy stan faktycznie się zmienia
+     * (read-modify), bo metoda-rodzic biegnie per pole każdej dyskusji/posta —
+     * bezwarunkowy zapis zalałby tabelę ustawień. W normalnej pracy (refleksja działa,
+     * flaga nieustawiona) to jeden odczyt z cache ustawień i zero zapisów.
+     */
+    protected function recordReflectionState(bool $ok): void
+    {
+        if (self::$reflectionStateRecorded === $ok) {
+            return;
+        }
+        self::$reflectionStateRecorded = $ok;
+
+        try {
+            $key = 'tryhackx-homepage-blocks.field_length_reflection_failed';
+            $current = (bool) $this->settings->get($key);
+            // Zapisuj tylko realną zmianę: ok+ustawiona → wyczyść; !ok+nieustawiona → ustaw.
+            if ($ok === $current) {
+                $this->settings->set($key, $ok ? '0' : '1');
+            }
+        } catch (\Throwable $ignored) {
+            // best-effort — sygnał dla admina nie może wywrócić serializacji pola
+        }
     }
 }

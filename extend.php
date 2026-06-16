@@ -14,8 +14,18 @@ use TryHackX\HomepageBlocks\Search\RatingFilter;
 use TryHackX\HomepageBlocks\Search\DateIntervalFilter;
 use TryHackX\HomepageBlocks\Search\TitleFilter;
 use TryHackX\HomepageBlocks\Search\UserFilter;
+use TryHackX\HomepageBlocks\Provider\StoreProvider;
 use TryHackX\HomepageBlocks\Search\SteamRatingSortMutator;
 use TryHackX\HomepageBlocks\Sort\SteamRatingSort;
+
+// `FieldLengthModifier` jest bezstanowy (poza statykami) i ma wyłącznie singletonowe
+// zależności — rozwiązujemy go LENIWIE i RAZ, zamiast przez resolve() w każdym
+// wywołaniu field() (a te biegną per pole każdej dyskusji / posta / odpowiedzi).
+// Domknięcie odracza rozwiązanie do pierwszego użycia, gdy kontener jest już gotowy.
+$fieldLengthModifier = null;
+$fieldLength = function () use (&$fieldLengthModifier) {
+    return $fieldLengthModifier ??= resolve(FieldLengthModifier::class);
+};
 
 return [
     (new Extend\Frontend('forum'))
@@ -27,6 +37,11 @@ return [
         ->css(__DIR__ . '/resources/less/admin.less'),
 
     new Extend\Locales(__DIR__ . '/resources/locale'),
+
+    // Wiąże magazyn limitera punktów i cache statystyk ({@see Store}): natywny
+    // plikowy domyślnie, a automatycznie cross-node, gdy Flarum ma współdzielony,
+    // lockowalny cache (Redis…). Patrz StoreProvider (audyt #2/#3).
+    (new Extend\ServiceProvider())->register(StoreProvider::class),
 
     (new Extend\Routes('api'))
         ->get('/tryhackx/homepage/random', 'tryhackx.homepage.random', RandomDiscussionController::class)
@@ -141,10 +156,10 @@ return [
 
     // ── Nadpisanie długości tytułu/treści (dyskusje) ──
     (new Extend\ApiResource(DiscussionResource::class))
-        ->field('title', fn ($field) => resolve(FieldLengthModifier::class)->applyTitle($field))
-        ->field('content', fn ($field) => resolve(FieldLengthModifier::class)->applyContent($field)),
+        ->field('title', fn ($field) => $fieldLength()->applyTitle($field))
+        ->field('content', fn ($field) => $fieldLength()->applyContent($field)),
 
     // ── Nadpisanie długości treści (posty) ──
     (new Extend\ApiResource(PostResource::class))
-        ->field('content', fn ($field) => resolve(FieldLengthModifier::class)->applyContent($field)),
+        ->field('content', fn ($field) => $fieldLength()->applyContent($field)),
 ];

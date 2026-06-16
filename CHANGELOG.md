@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-15
+
+Large-forum hardening pass (third-party review). Two themes: **bounded blocking**
+on the stats path, and a **swappable, cross-node-capable storage layer** for the
+per-IP rate limiter and the stats caches. **No database migrations.** PHP +
+frontend (admin asset rebuilt) — `composer update` + `php flarum cache:clear`.
+
+### Added
+- **Swappable storage layer (`Store`) for the rate limiter and stats caches, with
+  automatic driver selection.** New `TryHackX\HomepageBlocks\Cache\Store` with two
+  implementations, picked at runtime from Flarum's configured cache (no new admin
+  setting — see `Provider\StoreProvider`):
+  - **`FileStore`** — the default. The previous native files + `flock` + atomic
+    `rename` logic, unchanged in behaviour. Correct and fast on a single server
+    (including a large one) and depends only on PHP — **single-node installs behave
+    exactly as before.**
+  - **`CacheStore`** — used **only** when Flarum's `cache.store` is a shared,
+    lockable driver (Redis/Memcached — e.g. once a Redis extension repoints the
+    binding). Gives **cross-node** consistency via `Cache::lock()`. All contact with
+    Flarum's cache API is isolated to this one class, so the forward-compat surface
+    is one swappable file and the file path is always the fallback. (audit #2/#3)
+- **Admin warning when title/content length enforcement silently stops working.**
+  `FieldLengthModifier` now records a settings flag
+  (`field_length_reflection_failed`) when its reflection-based rule override fails
+  (e.g. a Flarum core change) and the extension settings page shows a red notice, so
+  the operator sees it instead of the limits going off with only a server-log line.
+  The flag is written at most once per process and only when the state flips.
+  (audit #1)
+
+### Security
+- **The per-IP points rate limiter is now correct across multiple app servers**
+  when a shared cache is configured. Previously each PHP-FPM node kept its own
+  file-based buckets, so on a load-balanced cluster an IP could obtain roughly N×
+  the budget (one bucket per node) and the block/captcha gate could be split across
+  nodes. With `CacheStore` the bucket and its lock live in the shared store, so
+  charging/blocking is atomic cluster-wide. Single-node installs are unaffected
+  (still file-backed). (audit #3)
+
+### Performance
+- **External-stats fetch can no longer hold a worker for up to 12 s.** `fetchRaw()`
+  cURL timeouts cut from 12 s / 6 s to **5 s / 2 s** (total / connect), stream
+  fallback matched. A single slow or unreachable OpenTracker endpoint now ties up
+  the one single-flight worker for ~5 s at most instead of 12 s — meaningful on a
+  busy FPM pool. (audit #4)
+- **reCAPTCHA `siteverify` timeout** trimmed 10 s / 5 s → **8 s / 4 s**; in classic
+  mode this is on the hot path of every protected request. (audit #4)
+- **Stats single-flight is global on a shared cache.** Internal and external stat
+  refreshes serialise through the `Store` lock, so on a Redis-backed cluster the
+  DB / source is hit at most once per interval **across all nodes**, not once per
+  node. (audit #3)
+- **`FieldLengthModifier` is resolved once (memoised)** instead of via `resolve()`
+  on every serialised `title` / `content` field. (audit #6)
+
+### Changed
+- `PointsManager` and `TrackerStatsController` now delegate **all** persistence to
+  `Store`. The controller's file-path / `readCacheFile` / `atomicWrite` / `flock`
+  single-flight plumbing was removed (the mechanics live in `Store`), slimming the
+  controller and separating caching from stats logic. (audit #5)
+
+### Internal
+- `preflightCheck()` keeps its raw `fetch()` (not `app.request()`) **by design** —
+  it handles 403 / 429 as normal control flow and must not trigger Flarum's default
+  error alert; now documented in a comment. (audit #7)
+
+### Notes
+- This **supersedes the 2.1.10 / 2.1.11 "stays file-based on purpose" note.** File
+  storage is still the default and is byte-for-byte the same on a single server;
+  what is new is that a true multi-node deployment now gets a shared atomic store
+  **automatically** when Flarum's cache is Redis/Memcached-backed — no blind
+  retrofit, no new setting, and the file path remains the always-available fallback.
+- Verified on `http://flarum.localhost/` (Flarum 2.0.0-rc.3, file cache →
+  `FileStore`): PHP lint clean; internal stats endpoint returns data and caches; the
+  points limiter charges down and blocks (2 → 1 → 0 → HTTP 429 `rate_limited`,
+  `retry_after` counting down) through the new `Store`; discussion list + admin
+  settings page render with no console errors; the reflection-failure notice
+  shows/hides with the flag.
+
 ## [2.1.12] - 2026-06-14
 
 Coordinated robustness fix with `tryhackx/flarum-topic-rating` 2.4.11. **No database

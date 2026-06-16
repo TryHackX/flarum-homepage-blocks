@@ -254,10 +254,12 @@ class RecaptchaGuard
                     curl_setopt($ch, CURLOPT_POST, true);
                     curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 8);
                     // Osobny limit fazy połączenia — gdy siteverify jest nieosiągalne,
-                    // worker zwalnia się po ~5 s zamiast czekać pełny timeout (audyt #4).
-                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+                    // worker zwalnia się po ~4 s zamiast czekać pełny timeout (audyt #4).
+                    // W trybie klasycznym verifyToken bywa na gorącej ścieżce KAŻDEGO
+                    // chronionego żądania, więc total trzymamy krótko (8 s).
+                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
                     $response = curl_exec($ch);
                     curl_close($ch);
                     if ($response !== false && $response !== '') {
@@ -275,7 +277,7 @@ class RecaptchaGuard
                 'method' => 'POST',
                 'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
                 'content' => $body,
-                'timeout' => 10,
+                'timeout' => 8,
             ],
         ]);
         $response = @file_get_contents($url, false, $context);

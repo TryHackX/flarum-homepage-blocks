@@ -156,6 +156,12 @@ export async function preflightCheck(scope, token = null) {
     }
 
     try {
+        // Celowo surowy fetch(), a NIE app.request(): pre-flight traktuje 403
+        // (captcha_required) oraz 429 (rate_limited) jako NORMALNY przepływ sterowania
+        // i obsługuje je sam (patrz niżej). app.request() przy 4xx/5xx odrzuca obietnicę
+        // i pokazuje domyślny alert błędu Flarum — tu byłby mylący i dublowałby nasze
+        // własne powiadomienia. To same-origin GET z ciasteczkami sesji, więc nie
+        // potrzebuje pipeline'u app.request() (CSRF/nagłówki). Audyt #7.
         const res = await fetch(url, {
             method: 'GET',
             credentials: 'same-origin',

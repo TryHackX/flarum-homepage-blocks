@@ -3,13 +3,13 @@
 namespace TryHackX\HomepageBlocks\Api\Controller;
 
 use Flarum\Discussion\Discussion;
-use Flarum\Foundation\Paths;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
 use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use TryHackX\HomepageBlocks\Cache\Store;
 use TryHackX\HomepageBlocks\Concerns\BuildsGuardResponse;
 use TryHackX\HomepageBlocks\Model\MagnetLink;
 use TryHackX\HomepageBlocks\Security\RecaptchaGuard;
@@ -21,10 +21,16 @@ class TrackerStatsController implements RequestHandlerInterface
     /** Czas życia cache statystyk wewnętrznych (sekundy). Krótki — staty mają być „żywe”. */
     protected const INTERNAL_STATS_TTL = 10;
 
+    /** Klucze magazynu cache statystyk. */
+    protected const INTERNAL_KEY = 'stats:internal';
+    protected const EXTERNAL_KEY = 'stats:external';
+    /** Górne okno serwowania „stale" (sekundy) — i TTL wpisu w magazynie. */
+    protected const STALE_TTL = 3600;
+
     public function __construct(
         protected RecaptchaGuard $guard,
         protected SettingsRepositoryInterface $settings,
-        protected Paths $paths
+        protected Store $store
     ) {}
 
     public function handle(ServerRequestInterface $request): ResponseInterface
@@ -115,37 +121,27 @@ class TrackerStatsController implements RequestHandlerInterface
      */
     protected function refreshInternalSingleFlight(): array
     {
-        $lockPath = $this->getInternalCacheFilePath() . '.lock';
-        $fp = @fopen($lockPath, 'c');
-
-        if ($fp === false) {
-            // Nie da się założyć locka — policz best-effort.
-            $data = $this->computeInternalStats();
-            $this->setCachedInternalStats($data);
-            return $data;
-        }
-
-        if (!flock($fp, LOCK_EX | LOCK_NB)) {
-            // Inny worker już liczy — nie czekamy: serwuj stale (do 1h), a gdy go
-            // brak (pierwszy zimny load), policz best-effort, by UI nie dostało pustki.
-            fclose($fp);
-            return $this->getCachedInternalStats(3600) ?? $this->computeInternalStats();
-        }
-
-        try {
+        // Single-flight przez Store: tylko jeden worker liczy agregaty na interwał
+        // (globalnie, gdy magazyn jest współdzielony). Gdy locka nie dostaniemy,
+        // withLock zwróci null — wtedy serwujemy stale (do 1h), a przy pierwszym
+        // zimnym ładowaniu liczymy best-effort, by UI nie dostało pustki (audyt #3).
+        $data = $this->store->withLock(self::INTERNAL_KEY, function () {
             // Double-check: ktoś mógł odświeżyć cache zanim dostaliśmy lock.
             $again = $this->getCachedInternalStats(self::INTERNAL_STATS_TTL);
             if ($again !== null) {
                 return $again;
             }
 
-            $data = $this->computeInternalStats();
-            $this->setCachedInternalStats($data);
+            $fresh = $this->computeInternalStats();
+            $this->setCachedInternalStats($fresh);
+            return $fresh;
+        }, false, null);
+
+        if ($data !== null) {
             return $data;
-        } finally {
-            flock($fp, LOCK_UN);
-            fclose($fp);
         }
+
+        return $this->getCachedInternalStats(self::STALE_TTL) ?? $this->computeInternalStats();
     }
 
     // ────────────── Statystyki zewnętrzne (OpenTracker / proxy) ──────────────
@@ -203,25 +199,11 @@ class TrackerStatsController implements RequestHandlerInterface
      */
     protected function refreshExternalSingleFlight(bool $isNative, string $fetchUrl, int $refreshInterval): ?array
     {
-        $lockPath = $this->getCacheFilePath() . '.lock';
-        $fp = @fopen($lockPath, 'c');
-
-        if ($fp === false) {
-            // Nie da się założyć locka — fetch best-effort bez ochrony.
-            $data = $isNative ? $this->fetchNativeOpenTracker($fetchUrl) : $this->fetchExternalStats($fetchUrl);
-            if ($data !== null) {
-                $this->setCachedExternalStats($data);
-            }
-            return $data;
-        }
-
-        if (!flock($fp, LOCK_EX | LOCK_NB)) {
-            // Inny worker już odświeża — nie czekamy (serwujemy stale wyżej).
-            fclose($fp);
-            return null;
-        }
-
-        try {
+        // Single-flight przez Store: tylko jeden worker odpytuje źródło na interwał
+        // (globalnie, gdy magazyn jest współdzielony) — zapobiega thundering herd na
+        // zimnym cache (audyt B1/#3). Gdy locka nie dostaniemy, zwracamy null i
+        // wołający serwuje stale.
+        return $this->store->withLock(self::EXTERNAL_KEY, function () use ($isNative, $fetchUrl, $refreshInterval) {
             // Double-check: ktoś mógł odświeżyć cache zanim dostaliśmy lock.
             $again = $this->getCachedExternalStats($refreshInterval);
             if ($again !== null) {
@@ -233,80 +215,45 @@ class TrackerStatsController implements RequestHandlerInterface
                 $this->setCachedExternalStats($data);
             }
             return $data;
-        } finally {
-            flock($fp, LOCK_UN);
-            fclose($fp);
-        }
+        }, false, null);
     }
 
-    // ────────────── Cache plikowy ──────────────
-
-    protected function getCacheFilePath(): string
-    {
-        return $this->paths->storage . '/cache/tryhackx_external_stats.json';
-    }
-
-    protected function getInternalCacheFilePath(): string
-    {
-        return $this->paths->storage . '/cache/tryhackx_internal_stats.json';
-    }
+    // ────────────── Cache statystyk (przez Store) ──────────────
+    // Magazyn jest wymienny: domyślnie plikowy (atomowy zapis + flock), a przy
+    // współdzielonym cache (Redis…) automatycznie cross-node. Cała mechanika
+    // plik/lock/atomic-write żyje teraz w Store, nie w kontrolerze (audyt #2/#5).
 
     protected function getCachedExternalStats(int $maxAgeSeconds): ?array
     {
-        return $this->readCacheFile($this->getCacheFilePath(), $maxAgeSeconds);
+        return $this->readFresh(self::EXTERNAL_KEY, $maxAgeSeconds);
     }
 
     protected function setCachedExternalStats(array $data): void
     {
-        $this->atomicWrite($this->getCacheFilePath(), json_encode($data));
+        $this->store->write(self::EXTERNAL_KEY, $data, self::STALE_TTL);
     }
 
     protected function getCachedInternalStats(int $maxAgeSeconds): ?array
     {
-        return $this->readCacheFile($this->getInternalCacheFilePath(), $maxAgeSeconds);
+        return $this->readFresh(self::INTERNAL_KEY, $maxAgeSeconds);
     }
 
     protected function setCachedInternalStats(array $data): void
     {
-        $this->atomicWrite($this->getInternalCacheFilePath(), json_encode($data));
+        $this->store->write(self::INTERNAL_KEY, $data, self::STALE_TTL);
     }
 
     /**
-     * Odczyt cache plikowego z kontrolą wieku. Zwraca null gdy brak/wygasł/uszkodzony.
+     * Odczyt z magazynu z kontrolą wieku. Zwraca null, gdy brak / starsze niż
+     * $maxAgeSeconds / uszkodzone.
      */
-    protected function readCacheFile(string $file, int $maxAgeSeconds): ?array
+    protected function readFresh(string $key, int $maxAgeSeconds): ?array
     {
-        if (!file_exists($file)) {
+        $read = $this->store->read($key);
+        if ($read === null || $read['age'] > $maxAgeSeconds) {
             return null;
         }
-
-        $mtime = filemtime($file);
-        if ($mtime === false || (time() - $mtime) > $maxAgeSeconds) {
-            return null; // wygasł
-        }
-
-        $content = @file_get_contents($file);
-        if ($content === false) {
-            return null;
-        }
-
-        $data = json_decode($content, true);
-        return is_array($data) ? $data : null;
-    }
-
-    /**
-     * Atomowy zapis: zapisz do pliku tymczasowego i podmień przez rename (atomowy),
-     * żeby czytelnik nie trzymający locka nie trafił na rozerwany plik (audyt D2).
-     */
-    protected function atomicWrite(string $file, string $payload): void
-    {
-        $tmp = $file . '.' . getmypid() . '.tmp';
-        if (@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
-            if (!@rename($tmp, $file)) {
-                @file_put_contents($file, $payload, LOCK_EX);
-                @unlink($tmp);
-            }
-        }
+        return $read['value'];
     }
 
     // ────────────── Natywny OpenTracker (XML) ──────────────
@@ -354,8 +301,12 @@ class TrackerStatsController implements RequestHandlerInterface
                 if ($ch !== false) {
                     curl_setopt($ch, CURLOPT_URL, $url);
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_TIMEOUT, 12);
-                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
+                    // Krótkie, twarde limity: pojedynczy wolny/niedostępny tracker nie
+                    // może trzymać workera FPM — przy dużym ruchu to wprost ucina pulę
+                    // współbieżności. Total 5 s / connect 2 s (audyt #4). Single-flight
+                    // (flock/lock) i tak wpuszcza tu najwyżej jednego workera na interwał.
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+                    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
                     curl_setopt($ch, CURLOPT_USERAGENT, $userAgent);
                     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
                     curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
@@ -377,7 +328,7 @@ class TrackerStatsController implements RequestHandlerInterface
 
         $context = stream_context_create([
             'http' => [
-                'timeout' => 12,
+                'timeout' => 5,
                 'method' => 'GET',
                 'header' => 'User-Agent: ' . $userAgent . "\r\n",
             ],

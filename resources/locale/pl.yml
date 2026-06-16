@@ -92,6 +92,7 @@ tryhackx-homepage-blocks:
       content_min_length: "Minimalna długość treści"
       content_max_length: "Maksymalna długość treści"
       content_length_help: "Kolumna treści to mediumtext (do 16 milionów znaków). Ustaw 0 aby pozwolić na puste posty."
+      field_length_reflection_failed_warning: "Uwaga: limity długości tytułu / treści NIE są obecnie egzekwowane. Rozszerzenie nadpisuje wbudowane reguły walidacji Flarum przez refleksję, a ten krok się nie powiódł — najpewniej aktualizacja rdzenia Flarum zmieniła wewnętrzną strukturę walidacji. Zaktualizuj to rozszerzenie (lub zgłoś problem), aby przywrócić egzekwowanie limitów."
       restore_defaults: "Domyślne"
       theme_mode: "Tryb motywu"
       theme_mode_help: "Auto wykrywa preferencje ciemnego motywu systemu/przeglądarki."

@@ -2,16 +2,24 @@
 
 namespace TryHackX\HomepageBlocks\Security;
 
-use Flarum\Foundation\Paths;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TryHackX\HomepageBlocks\Cache\Store;
 use TryHackX\HomepageBlocks\Concerns\ResolvesClientIp;
 
 /**
  * Limiter akcji oparty na kubełku punktów (token-bucket) per IP klienta.
  *
- * Magazyn: storage/cache/tryhackx_points/{hash}.json — jeden plik na IP.
- * Zawartość: {"balance": <float>, "ts": <unix>, "blocked_until": <unix|0>}.
+ * Stan kubełka: {"balance": <float>, "ts": <unix>, "blocked_until": <unix|0>},
+ * trzymany w {@see Store} pod kluczem `points:{sha1(ip)}` (IP jest zhashowane —
+ * surowy adres nie trafia do magazynu/kluczy cache).
+ *
+ * Magazyn jest WYMIENNY (audyt #2/#3):
+ *   - domyślnie {@see \TryHackX\HomepageBlocks\Cache\FileStore} (pliki+flock,
+ *     poprawny na pojedynczym serwerze),
+ *   - a gdy Flarum ma współdzielony, lockowalny cache (Redis…) — automatycznie
+ *     {@see \TryHackX\HomepageBlocks\Cache\CacheStore}, dający atomowość CROSS-NODE
+ *     (na klastrze IP nie obejdzie limitu „N× per node").
  *
  * Model działania:
  *   - Każda chroniona akcja zdejmuje z kubełka koszt akcji.
@@ -33,7 +41,7 @@ class PointsManager
 
     public function __construct(
         protected SettingsRepositoryInterface $settings,
-        protected Paths $paths
+        protected Store $store
     ) {}
 
     public function isEnabled(): bool
@@ -133,7 +141,7 @@ class PointsManager
      */
     public function getBlockRemaining(string $ip): int
     {
-        return $this->withLock($ip, function () use ($ip) {
+        return $this->store->withLock($this->key($ip), function () use ($ip) {
             $state = $this->normalize($this->readState($ip));
             $this->writeState($ip, $state);
 
@@ -148,7 +156,7 @@ class PointsManager
     public function block(string $ip, int $seconds): int
     {
         $seconds = max(1, $seconds);
-        return $this->withLock($ip, function () use ($ip, $seconds) {
+        return $this->store->withLock($this->key($ip), function () use ($ip, $seconds) {
             $state = $this->normalize($this->readState($ip));
             $state['balance'] = 0.0;
             $state['ts'] = time();
@@ -170,7 +178,7 @@ class PointsManager
         // równoległe workery odczytałyby to samo saldo i każdy pobrałby koszt,
         // a wygrałby tylko ostatni zapis (TOCTOU) — co pozwalało zdrenować kubełek
         // wolniej, niż wynika z konfiguracji, i osłabiało limiter (audyt A3).
-        return $this->withLock($ip, function () use ($ip, $cost) {
+        return $this->store->withLock($this->key($ip), function () use ($ip, $cost) {
             $state = $this->normalize($this->readState($ip));
 
             // Aktywna blokada — nic nie pobieramy.
@@ -198,75 +206,43 @@ class PointsManager
     public function refillToStart(string $ip): float
     {
         $start = $this->getStart();
-        $this->withLock($ip, function () use ($ip, $start) {
+        $this->store->withLock($this->key($ip), function () use ($ip, $start) {
             $this->writeState($ip, ['balance' => $start, 'ts' => time(), 'blocked_until' => 0]);
         });
         return $start;
     }
 
-    // ────────────── Magazyn wewnętrzny ──────────────
+    // ────────────── Magazyn (delegowany do Store) ──────────────
 
     /**
-     * Wykonaj operację read-modify-write na kubełku danego IP pod ekskluzywną
-     * blokadą plikową (osobny plik .lock per IP). Serializuje równoległe workery
-     * obsługujące to samo IP, więc księgowanie punktów jest atomowe.
-     *
-     * Gdy locka nie da się założyć (np. brak praw do pliku), wykonujemy callback
-     * bez niego — limiter ma działać best-effort, a nie paść przez brak .lock.
-     *
-     * @template T
-     * @param  callable():T $fn
-     * @return T
+     * Klucz magazynu dla IP. Hashujemy adres, więc surowe IP nie trafia do nazw
+     * plików ani kluczy cache (Redis).
      */
-    protected function withLock(string $ip, callable $fn)
+    protected function key(string $ip): string
     {
-        $lockPath = $this->getFile($ip) . '.lock';
-        $fp = @fopen($lockPath, 'c');
-        if ($fp === false) {
-            return $fn();
-        }
-
-        $locked = @flock($fp, LOCK_EX);
-        try {
-            return $fn();
-        } finally {
-            if ($locked) {
-                @flock($fp, LOCK_UN);
-            }
-            @fclose($fp);
-        }
+        return 'points:' . sha1($ip);
     }
 
-    protected function getDir(): string
+    /**
+     * TTL kubełka: po tylu sekundach bezczynności i tak byłby pełny i odblokowany,
+     * więc współdzielony cache może go wygasić (a GC plikowy — skasować).
+     */
+    protected function bucketTtl(): int
     {
-        $dir = $this->paths->storage . '/cache/tryhackx_points';
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0775, true);
-        }
-        return $dir;
-    }
-
-    protected function getFile(string $ip): string
-    {
-        return $this->getDir() . '/' . sha1($ip) . '.json';
+        return max(86400, $this->getBlockSeconds() * 4);
     }
 
     protected function readState(string $ip): array
     {
         $fresh = ['balance' => $this->getStart(), 'ts' => time(), 'blocked_until' => 0];
 
-        $file = $this->getFile($ip);
-        if (!file_exists($file)) {
+        $read = $this->store->read($this->key($ip));
+        if ($read === null) {
             return $fresh;
         }
 
-        $raw = @file_get_contents($file);
-        if ($raw === false) {
-            return $fresh;
-        }
-
-        $data = json_decode($raw, true);
-        if (!is_array($data) || !isset($data['balance'], $data['ts'])) {
+        $data = $read['value'];
+        if (!isset($data['balance'], $data['ts'])) {
             return $fresh;
         }
 
@@ -279,24 +255,11 @@ class PointsManager
 
     protected function writeState(string $ip, array $state): void
     {
-        $file = $this->getFile($ip);
-
-        // Zapis atomowy: zapisz do pliku tymczasowego i podmień (rename jest atomowy).
-        $payload = json_encode([
+        $this->store->write($this->key($ip), [
             'balance' => (float) $state['balance'],
             'ts' => (int) $state['ts'],
             'blocked_until' => (int) ($state['blocked_until'] ?? 0),
-        ]);
-
-        $tmp = $file . '.' . getmypid() . '.tmp';
-        if (@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
-            if (!@rename($tmp, $file)) {
-                @file_put_contents($file, $payload, LOCK_EX);
-                @unlink($tmp);
-            }
-        }
-
-        $this->maybeCollectGarbage();
+        ], $this->bucketTtl());
     }
 
     /**
@@ -354,75 +317,5 @@ class PointsManager
             'ts' => (int) $state['ts'] + ($ticks * $refillSeconds),
             'blocked_until' => (int) ($state['blocked_until'] ?? 0),
         ];
-    }
-
-    /**
-     * Probabilistyczne sprzątanie: co jakiś czas usuwa pliki kubełków, które od
-     * dawna nie były ruszane (są w pełni odnowione i nie są zablokowane), żeby
-     * katalog nie rósł w nieskończoność na ruchu botów. Patrz audyt B4.
-     */
-    protected function maybeCollectGarbage(): void
-    {
-        // ~2% zapisów.
-        if (mt_rand(1, 50) !== 1) {
-            return;
-        }
-
-        // Po tym czasie bezczynności kubełek i tak byłby pełny i odblokowany —
-        // plik nie niesie żadnej informacji, można go skasować.
-        $ttl = max(86400, $this->getBlockSeconds() * 4);
-        $cutoff = time() - $ttl;
-
-        // Strumieniowy skan przez readdir — NIE glob(). glob() materializuje CAŁĄ
-        // listę plików naraz; na katalogu z setkami tysięcy kubełków (dużo IP / ruch
-        // botów) to ogromna alokacja i blokujące I/O. readdir czyta wpis po wpisie
-        // (O(1) pamięci), a twarde limity na przebieg gwarantują, że samo GC nie
-        // stanie się spike'iem I/O na dużym forum. Pliki przeterminowane, których nie
-        // dosięgniemy w danym przebiegu, sprzątną kolejne uruchomienia (GC pali się
-        // ~2% zapisów, a readdir zwykle zwraca starsze wpisy najpierw). (audyt: glob w GC)
-        // Twardy limit pracy na przebieg, NIEZALEŻNY od rozmiaru katalogu — to on
-        // spłaszcza spike I/O (każdy badany plik = jeden stat/filemtime). Przy losowej
-        // kolejności nazw (sha1) skan próbki i tak usuwa stale proporcjonalnie, a GC
-        // pali się ~2% zapisów, więc backlog i tak się domyka przez kolejne przebiegi.
-        $maxScan = 2000;    // ile wpisów zbadać na jeden przebieg (ogranicza stat-y)
-        $maxDelete = 500;   // ile maksymalnie usunąć na jeden przebieg
-
-        try {
-            $dir = $this->getDir();
-            $dh = @opendir($dir);
-            if ($dh === false) {
-                return;
-            }
-
-            $scanned = 0;
-            $deleted = 0;
-            try {
-                while (($entry = readdir($dh)) !== false) {
-                    if ($entry === '.' || $entry === '..') {
-                        continue;
-                    }
-                    if (++$scanned > $maxScan) {
-                        break;
-                    }
-                    // Tylko nasze pliki: {hash}.json oraz osierocone {hash}.json.lock.
-                    if (!str_ends_with($entry, '.json') && !str_ends_with($entry, '.json.lock')) {
-                        continue;
-                    }
-
-                    $file = $dir . '/' . $entry;
-                    $mtime = @filemtime($file);
-                    if ($mtime !== false && $mtime < $cutoff) {
-                        @unlink($file);
-                        if (++$deleted >= $maxDelete) {
-                            break;
-                        }
-                    }
-                }
-            } finally {
-                closedir($dh);
-            }
-        } catch (\Throwable $e) {
-            // sprzątanie jest best-effort — błędy ignorujemy
-        }
     }
 }
