@@ -351,13 +351,15 @@ export default class AdvancedFilters extends Component {
         // Build filter object for Flarum API
         const filter = {};
 
-        // Title search: uses custom TitleFilter (LIKE '%text%')
-        if (this.filters.title) {
+        // Title/User search: custom LIKE '%text%' filters. Min. 3 znaki — krótsze są
+        // i tak ignorowane po stronie serwera (full-scan guard, audyt H2), więc nie
+        // wysyłamy ich w ogóle (inaczej 1–2 znaki zwracałyby NIEfiltrowaną listę, co
+        // myli). Próg lustrzany do TitleFilter/UserFilter.
+        if (this.filters.title && this.filters.title.trim().length >= 3) {
             filter.title = this.filters.title;
         }
 
-        // User search: uses custom UserFilter (LIKE '%text%' on username)
-        if (this.filters.user) {
+        if (this.filters.user && this.filters.user.trim().length >= 3) {
             filter.user = this.filters.user;
         }
 

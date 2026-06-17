@@ -9,25 +9,22 @@ use Psr\Log\LoggerInterface;
  * Nadpisuje reguły walidacji długości pól `title` / `content` na zasobach API
  * dyskusji i postów, zgodnie z ustawieniami admina.
  *
- * Rdzeń Flarum akumuluje reguły przez `rule()` i nie udostępnia publicznej metody
- * do USUNIĘCIA istniejącej reguły min/max. Żeby umożliwić ROZLUŹNIENIE limitów
- * (np. krótszy minimalny tytuł niż domyślny rdzeniowy), filtrujemy tablicę reguł
- * przez Reflection. Logika żyje w tej klasie (z wstrzykniętym repozytorium ustawień)
- * zamiast w globalnej funkcji w extend.php — dzięki temu jest testowalna i nie
- * zaśmieca globalnej przestrzeni nazw.
+ * Używa wyłącznie PUBLICZNEGO API schematu Flarum 2.x
+ * (`Flarum\Api\Schema\Concerns\HasValidationRules`): `getRules()` do odczytu,
+ * `rules([], …, override: true)` do wyczyszczenia oraz `rule()` / `minLength()` /
+ * `maxLength()` do odtworzenia — bez refleksji na wewnętrznym stanie rdzenia
+ * (audyt H1). Pozwala ROZLUŹNIĆ rdzeniowe limity (np. krótszy minimalny tytuł),
+ * czego samo `minLength()` nie umie, bo tylko DOKŁADA regułę. Logika żyje w tej
+ * klasie (z wstrzykniętym repozytorium ustawień), więc jest testowalna.
  *
- * UWAGA: to celowo świadome sprzężenie z wewnętrzną strukturą rdzenia
- * (`Flarum\Api\Schema\Concerns\HasValidationRules::$rules`, format
- * `['rule' => 'min:N', 'condition' => ...]`). Jeśli rdzeń kiedyś to zmieni,
- * `catch (\Throwable)` zachowa oryginalne pole zamiast wywracać walidację.
+ * Działa na ścieżce serializacji (per pole każdej dyskusji/posta), dlatego
+ * `catch (\Throwable)` jest hot-path-owym bezpiecznikiem: w razie zmiany API
+ * rdzenia zachowuje pole z rdzeniowymi limitami zamiast wywracać odpowiedź.
  */
 class FieldLengthModifier
 {
-    /** Strażnik: ostrzeżenie o nieudanej refleksji logujemy raz na proces (patrz catch w replaceMinMax). */
-    private static bool $reflectionFailureLogged = false;
-
-    /** Ostatnio UTRWALONY stan refleksji (flaga ustawień). null = jeszcze nie zapisany w tym procesie. */
-    private static ?bool $reflectionStateRecorded = null;
+    /** Strażnik: ostrzeżenie o nieudanym nadpisaniu reguł logujemy raz na proces (patrz catch w replaceMinMax). */
+    private static bool $overrideFailureLogged = false;
 
     public function __construct(
         protected SettingsRepositoryInterface $settings,
@@ -80,16 +77,23 @@ class FieldLengthModifier
     protected function replaceMinMax($field, ?int $min, ?int $max)
     {
         try {
-            $ref = new \ReflectionProperty($field, 'rules');
-            $rules = $ref->getValue($field);
-
-            // Odfiltruj istniejące reguły min:/max:.
-            $rules = array_filter($rules, function ($rule) {
-                $r = $rule['rule'] ?? '';
+            // Flarum 2.x udostępnia PUBLICZNE API reguł walidacji schematu, więc nie
+            // sięgamy już refleksją po prywatne `$rules` (audyt H1 — zerwane sprzężenie
+            // z wewnętrznym stanem rdzenia, wersjo-odporne):
+            //   - getRules()             — odczyt aktualnych reguł,
+            //   - rules([], true, true)  — wyczyszczenie wszystkich (override),
+            //   - rule($r, $cond)        — ponowne dodanie (z zachowaniem warunku),
+            //   - minLength()/maxLength()— nasze limity.
+            // Usuwamy istniejące min:/max:, odtwarzamy resztę 1:1, dokładamy nasze.
+            $kept = array_filter($field->getRules(), static function ($entry) {
+                $r = $entry['rule'] ?? '';
                 return ! (is_string($r) && (str_starts_with($r, 'min:') || str_starts_with($r, 'max:')));
             });
 
-            $ref->setValue($field, array_values($rules));
+            $field->rules([], true, true); // override: wyczyść wszystkie reguły
+            foreach ($kept as $entry) {
+                $field->rule($entry['rule'], $entry['condition'] ?? true);
+            }
 
             if ($min !== null) {
                 $field->minLength($min);
@@ -97,25 +101,19 @@ class FieldLengthModifier
             if ($max !== null) {
                 $field->maxLength($max);
             }
-
-            // Refleksja zadziałała — wyczyść ewentualną „stałą" flagę awarii (np. po
-            // aktualizacji rdzenia, która znów udostępnia oczekiwaną strukturę reguł).
-            $this->recordReflectionState(true);
         } catch (\Throwable $e) {
-            // Reflection zawiodła (np. zmiana schematu rdzenia) — zachowaj pole bez zmian
-            // i podnieś WYKRYWALNY sygnał: (1) flaga ustawień, którą czyta panel admina,
-            // (2) log raz na proces. Metoda biegnie per pole każdej dyskusji/posta, więc
-            // jedno i drugie utrwalamy najwyżej raz na proces — bez tego ciche wyłączenie
-            // limitów długości było niezauważalne dla operatora (audyt #1/#5).
-            $this->recordReflectionState(false);
-
-            if (! self::$reflectionFailureLogged) {
-                self::$reflectionFailureLogged = true;
+            // Hot-path: ta metoda biegnie per pole KAŻDEJ dyskusji/posta przy
+            // serializacji — nigdy nie wolno jej wywrócić odpowiedzi API. Gdyby rdzeń
+            // zmienił to publiczne API, zostawiamy pole z rdzeniowymi limitami i logujemy
+            // RAZ na proces. BEZ zapisu do ustawień (audyt H3: koniec z zapisem na
+            // ścieżce GET — dawna „flaga ostrzeżenia w adminie" usunięta wraz z refleksją).
+            if (! self::$overrideFailureLogged) {
+                self::$overrideFailureLogged = true;
                 try {
                     $this->logger->warning(
                         '[tryhackx-homepage-blocks] Nie udało się nadpisać reguł długości pola '
-                        . '(Reflection na HasValidationRules::$rules zawiodła — możliwa zmiana rdzenia '
-                        . 'Flarum). Limity długości tytułu/treści mogą nie być egzekwowane.',
+                        . '(zmiana publicznego API schematu Flarum?). Limity długości tytułu/treści '
+                        . 'mogą nie być egzekwowane.',
                         ['exception' => $e]
                     );
                 } catch (\Throwable $ignored) {
@@ -125,33 +123,5 @@ class FieldLengthModifier
         }
 
         return $field;
-    }
-
-    /**
-     * Utrwal stan ostatniej próby refleksji w fladze ustawień
-     * `…field_length_reflection_failed`, którą panel admina pokazuje jako ostrzeżenie.
-     *
-     * Zapis NAJWYŻEJ raz na proces i TYLKO gdy stan faktycznie się zmienia
-     * (read-modify), bo metoda-rodzic biegnie per pole każdej dyskusji/posta —
-     * bezwarunkowy zapis zalałby tabelę ustawień. W normalnej pracy (refleksja działa,
-     * flaga nieustawiona) to jeden odczyt z cache ustawień i zero zapisów.
-     */
-    protected function recordReflectionState(bool $ok): void
-    {
-        if (self::$reflectionStateRecorded === $ok) {
-            return;
-        }
-        self::$reflectionStateRecorded = $ok;
-
-        try {
-            $key = 'tryhackx-homepage-blocks.field_length_reflection_failed';
-            $current = (bool) $this->settings->get($key);
-            // Zapisuj tylko realną zmianę: ok+ustawiona → wyczyść; !ok+nieustawiona → ustaw.
-            if ($ok === $current) {
-                $this->settings->set($key, $ok ? '0' : '1');
-            }
-        } catch (\Throwable $ignored) {
-            // best-effort — sygnał dla admina nie może wywrócić serializacji pola
-        }
     }
 }

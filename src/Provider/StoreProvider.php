@@ -10,6 +10,7 @@ use Illuminate\Cache\NullStore;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository;
 use Psr\Log\LoggerInterface;
+use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Cache\CacheStore;
 use TryHackX\HomepageBlocks\Cache\FileStore;
 use TryHackX\HomepageBlocks\Cache\Store;
@@ -32,6 +33,12 @@ class StoreProvider extends AbstractServiceProvider
 {
     public function register(): void
     {
+        // Modyfikator długości pól jako SINGLETON — jedna instancja na żądanie,
+        // zarządzana przez kontener (widoczna dla DI, testowalna/podmienialna). Zastępuje
+        // dawną file-scope memoizację w extend.php; callbacki field() pobierają go
+        // tanim resolve()em (audyt H6/H7). Zależności (settings, logger) auto-wstrzykiwane.
+        $this->container->singleton(FieldLengthModifier::class);
+
         $this->container->singleton(Store::class, function ($container) {
             // Ścieżka domyślna: natywny magazyn plikowy.
             $fileStore = fn () => new FileStore($container->make(Paths::class), $container->make(LoggerInterface::class));

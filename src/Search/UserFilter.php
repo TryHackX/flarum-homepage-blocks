@@ -30,6 +30,15 @@ class UserFilter implements FilterInterface
             return;
         }
 
+        // Audyt H2: pomiń bardzo krótkie zapytania. `LIKE '%x%'` ma wiodący wildcard →
+        // nie użyje indeksu B-tree (pełny skan tabeli users w podzapytaniu whereExists),
+        // a 1–2 znaki i tak nie zawężają sensownie. Próg 3 znaków ucina najgorszy
+        // przypadek skanu — autorytatywny limit po stronie serwera (front też nie
+        // wysyła krótszych, ale tu jest twarda bramka dla curl/bota).
+        if (mb_strlen($value) < 3) {
+            return;
+        }
+
         // Escape LIKE wildcards in user input
         $escaped = str_replace(['%', '_'], ['\\%', '\\_'], $value);
 

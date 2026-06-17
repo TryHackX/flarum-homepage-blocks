@@ -18,14 +18,11 @@ use TryHackX\HomepageBlocks\Provider\StoreProvider;
 use TryHackX\HomepageBlocks\Search\SteamRatingSortMutator;
 use TryHackX\HomepageBlocks\Sort\SteamRatingSort;
 
-// `FieldLengthModifier` jest bezstanowy (poza statykami) i ma wyłącznie singletonowe
-// zależności — rozwiązujemy go LENIWIE i RAZ, zamiast przez resolve() w każdym
-// wywołaniu field() (a te biegną per pole każdej dyskusji / posta / odpowiedzi).
-// Domknięcie odracza rozwiązanie do pierwszego użycia, gdy kontener jest już gotowy.
-$fieldLengthModifier = null;
-$fieldLength = function () use (&$fieldLengthModifier) {
-    return $fieldLengthModifier ??= resolve(FieldLengthModifier::class);
-};
+// `FieldLengthModifier` jest związany jako SINGLETON w StoreProvider (jedna instancja
+// na żądanie, zarządzana przez kontener — testowalna/podmienialna, audyt H6/H7).
+// Callbacki field() nie dostają kontenera, więc pobieramy go tu resolve()em — dzięki
+// singletonowi to tani lookup, a NIE budowa instancji per pole dyskusji/posta.
+$fieldLength = fn () => resolve(FieldLengthModifier::class);
 
 return [
     (new Extend\Frontend('forum'))

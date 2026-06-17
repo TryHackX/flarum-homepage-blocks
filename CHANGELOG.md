@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-06-17
+
+> Floxum audit (runda 2) — usuwa sprzężenie przez Reflection w `FieldLengthModifier`
+> na rzecz publicznego API schematu, bramkuje filtry LIKE progiem 3 znaków i wiąże
+> modyfikator jako singleton kontenera. **PHP + frontend, bez migracji** — przebuduj
+> assety: `composer update` + `php flarum cache:clear`.
+
+### Changed
+- **`FieldLengthModifier` nie używa już Reflection na prywatnym `$rules` rdzenia.**
+  Korzysta z publicznego API schematu Flarum 2.x — `getRules()` (odczyt),
+  `rules([], …, override: true)` (czyszczenie) oraz `rule()` / `minLength()` /
+  `maxLength()` (odtworzenie) — więc nadpisanie limitów długości tytułu/treści nie jest
+  już sprzężone z wnętrzem rdzenia i nie zepsuje się po cichu przy refaktorze schematu
+  (fail-safe do limitów rdzenia + log raz na proces). (floxum HIGH: Reflection na `$rules`)
+- **Zniknął diagnostyczny zapis do ustawień na ścieżce GET.** Usunięcie Reflection
+  zlikwidowało potrzebę flagi `field_length_reflection_failed`, więc zapis
+  `settings->set()` przy serializacji `GET /api/discussions` (oraz ostrzeżenie w adminie
+  i klucze locale) został usunięty. (floxum: zapis do ustawień podczas GET)
+
+### Performance
+- **Filtry wyszukiwania `title` / `user` wymagają teraz ≥ 3 znaków.** Oba budują
+  `LIKE '%wartość%'` (wiodący wildcard → pełny skan tabeli); zapytania 1–2-znakowe są
+  pomijane po stronie serwera (autorytatywnie) i nie są już wysyłane przez frontend,
+  co ucina najgorszy skan na każdym debounce'owanym znaku. (floxum: skany LIKE)
+
+### Conventions
+- **`FieldLengthModifier` związany jako singleton w `StoreProvider`** — zastępuje
+  file-scope'ową, leniwą referencję `resolve()` w extend.php; klasa jest teraz
+  zarządzana przez kontener (widoczna/podmienialna). Callbacki field() nadal ją
+  pobierają (rdzeń nie wstrzykuje kontenera do field()), ale jako tani lookup
+  singletonu. (floxum: resolve()/file-scope singleton)
+
 ## [2.3.0] - 2026-06-17
 
 > Floxum audit follow-up (orange 80/100). Moves the two state-mutating endpoints off

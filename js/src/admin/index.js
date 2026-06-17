@@ -274,21 +274,6 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
         // ──────────── CONTENT SETTINGS ────────────
         .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_content')))
 
-        // Ostrzeżenie: refleksja nadpisująca reguły długości zawiodła (np. po zmianie
-        // rdzenia Flarum) → limity długości NIE są egzekwowane. Renderujemy tylko gdy
-        // flaga została ustawiona przez backend (FieldLengthModifier::recordReflectionState),
-        // inaczej zwracamy null (nic). Audyt #1.
-        .registerSetting(function () {
-            const failed = settingIsTruthy(this.setting(S + '.field_length_reflection_failed')());
-            if (!failed) return null;
-            return m('div', { className: 'Form-group' }, [
-                m('div', { className: 'Alert Alert--error' }, [
-                    m('i', { className: 'fas fa-exclamation-triangle', style: 'margin-right:8px' }),
-                    app.translator.trans('tryhackx-homepage-blocks.admin.settings.field_length_reflection_failed_warning'),
-                ]),
-            ]);
-        })
-
         // Title length
         .registerSetting({
             setting: `${S}.title_length_enabled`,
