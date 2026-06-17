@@ -43,10 +43,14 @@ return [
     // lockowalny cache (Redis…). Patrz StoreProvider (audyt #2/#3).
     (new Extend\ServiceProvider())->register(StoreProvider::class),
 
+    // /random i /points/check MUTUJĄ stan (dekrementują kubełek punktów per-IP),
+    // więc są POST — GET ma być bezpieczny/idempotentny (RFC 9110), a prefetchery
+    // linków / cache / probery CDN mogłyby po cichu drenować budżet użytkownika
+    // (audyt H2). /stats to czysty odczyt (cache statystyk) → zostaje GET.
     (new Extend\Routes('api'))
-        ->get('/tryhackx/homepage/random', 'tryhackx.homepage.random', RandomDiscussionController::class)
+        ->post('/tryhackx/homepage/random', 'tryhackx.homepage.random', RandomDiscussionController::class)
         ->get('/tryhackx/homepage/stats', 'tryhackx.homepage.stats', TrackerStatsController::class)
-        ->get('/tryhackx/homepage/points/check', 'tryhackx.homepage.points.check', CheckPointsController::class),
+        ->post('/tryhackx/homepage/points/check', 'tryhackx.homepage.points.check', CheckPointsController::class),
 
     (new Extend\Settings())
         ->serializeToForum('tryhackx-homepage-blocks.section1_enabled', 'tryhackx-homepage-blocks.section1_enabled', function ($value) {

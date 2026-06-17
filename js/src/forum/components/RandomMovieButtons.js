@@ -94,7 +94,10 @@ export default class RandomMovieButtons extends Component {
         const headers = token ? { 'X-Recaptcha-Token': token } : await recaptchaHeaders('random');
 
         try {
-            return await app.request({ method: 'GET', url, headers });
+            // POST: /random mutuje kubełek punktów (audyt H2). app.request dokłada
+            // nagłówek CSRF automatycznie; `tag` zostaje w query stringu (czyta go
+            // kontroler przez getQueryParams), więc backend nie wymaga zmian.
+            return await app.request({ method: 'POST', url, headers });
         } catch (err) {
             // Flarum throws on non-2xx; inspect response
             const status = err && err.status;

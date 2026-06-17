@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-06-17
+
+> Floxum audit follow-up (orange 80/100). Moves the two state-mutating endpoints off
+> GET, shortens the siteverify timeout, hardens the single-flight lock, and documents
+> the search guard as a soft client-side gate. **Frontend + route change, no
+> migrations** — rebuild assets:
+> `composer update` + `php flarum assets:publish` + `php flarum cache:clear`.
+
+### Changed
+- **`/random` and `/points/check` are now POST (were GET).** Both mutate the per-IP
+  points bucket, so GET broke RFC 9110's safe/idempotent contract — link prefetchers,
+  CDN probes and cached GET replays could silently drain a user's budget. `/stats`
+  stays GET (pure read). The frontend sends these as POST with the `X-CSRF-Token`
+  header (`app.request` adds it automatically; the raw-fetch pre-flight adds it
+  explicitly). **Breaking for any external caller of the old GET endpoints.** (floxum)
+
+### Security
+- **siteverify timeout cut from 8 s to 5 s.** In classic reCAPTCHA mode `verifyToken`
+  runs on the hot path of every protected request; the shorter total (just above the
+  4 s connect timeout) reduces how long an FPM worker is held during a Google
+  slowdown/outage. (floxum)
+- **`CacheStore::withLock($wait=false)` no longer confuses an unacquired lock with a
+  callback that returns `false`.** A sentinel wrapper preserves a genuine `false`
+  result and returns the fallback only on a real lock miss. No behavioural change today
+  (callbacks return arrays/null) — forward-proofing. (floxum)
+
+### Documentation
+- **The search rate-limit is now explicitly documented as a soft, client-side gate.**
+  The pre-flight (`CheckPointsController` / `AdvancedFilters`) deters casual abuse, but
+  the actual query hits core `/api/discussions`, which is not rate-limited server-side.
+  A hard guard would need a scoped middleware with a single points-charge point;
+  deferred until traffic warrants it. (floxum)
+
+### Notes
+- **Deliberately unchanged** (documented): `resolve()` in extend.php (memoised once per
+  request); raw cURL vs Laravel HTTP client (explicit timeouts + fail-closed fallback);
+  the `recordReflectionState` condition (correct as-is — the stored "failed" flag is the
+  semantic inverse of `$ok`, so equal values mean "out of sync, write"). (floxum)
+
 ## [2.2.2] - 2026-06-17
 
 > Minor cleanup from the audit follow-up (already green, non-blocking). **PHP only**

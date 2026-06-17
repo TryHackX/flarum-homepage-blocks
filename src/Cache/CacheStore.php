@@ -71,9 +71,21 @@ class CacheStore implements Store
         $lock = $this->locks->lock(self::LOCK_PREFIX . $key, self::LOCK_TTL);
 
         if (!$wait) {
-            // Single-flight: spróbuj założyć bez czekania. get() zwraca false, gdy zajęte.
-            $result = $lock->get($fn);
-            return $result === false ? $fallback : $result;
+            // Single-flight: spróbuj założyć blokadę bez czekania.
+            // Lock::get($cb) zwraca false, gdy blokady NIE zdobyto, ale gdy ją zdobędzie —
+            // przepuszcza wartość zwróconą przez $cb. Surowe `=== false` myliłoby więc
+            // „nie zdobyto blokady" z callbackiem, który sam zwrócił false. Dziś callbacki
+            // oddają tablice/null, ale zabezpieczamy się na przyszłość sentinelem: tylko
+            // brak blokady → $fallback; realny false z $fn() zachowujemy (audyt H6).
+            $sentinel = new \stdClass();
+            $result = $lock->get(function () use ($fn, $sentinel) {
+                $value = $fn();
+                return $value === false ? $sentinel : $value;
+            });
+            if ($result === false) {
+                return $fallback; // blokady nie zdobyto
+            }
+            return $result === $sentinel ? false : $result;
         }
 
         try {

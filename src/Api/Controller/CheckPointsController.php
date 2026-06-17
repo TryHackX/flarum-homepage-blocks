@@ -14,6 +14,15 @@ use TryHackX\HomepageBlocks\Security\RecaptchaGuard;
  * Używany przez frontend przed natywnym wyszukiwaniem / odświeżeniem listy
  * dyskusji (których rozszerzenie nie bramkuje po stronie PHP).
  *
+ * ⚠ MIĘKKA BRAMKA (świadoma decyzja audytu C1): dla zakresu 'search' to wyłącznie
+ * pre-flight po stronie KLIENTA. Samo wyszukiwanie idzie potem w rdzeniowy
+ * /api/discussions, który NIE jest bramkowany serwerowo — klient pomijający
+ * pre-flight (curl, bot, devtools) wykona je bez naliczenia/limitu. Zaakceptowane:
+ * filtry title/user (LIKE) są ograniczone, a twarda bramka wymagałaby dedykowanego
+ * middleware na /api/discussions z POJEDYNCZYM punktem naliczania (inaczej pre-flight
+ * + middleware naliczyłyby podwójnie) — do zrobienia, gdy ruch wzrośnie. Zakres
+ * 'random' NIE jest miękki: RandomDiscussionController sam woła guard->verify('random').
+ *
  * Query: ?action=search
  *        ?action=search&recaptcha_token=...
  *

@@ -309,6 +309,12 @@ export default class AdvancedFilters extends Component {
      * If reCAPTCHA is enabled for search, a pre-flight check is performed
      * against the server; when the points bucket is exhausted the captcha
      * modal is shown and the search is retried after a successful token.
+     *
+     * NOTE (audit C1): this pre-flight is a SOFT, client-side gate. The actual
+     * query hits core /api/discussions, which is NOT rate-limited server-side, so
+     * a client skipping the pre-flight (curl/bot/devtools) can search unthrottled.
+     * Accepted trade-off; a hard guard would need a scoped middleware on
+     * /api/discussions with a single points-charge point (see CheckPointsController).
      */
     async applyFilters() {
         app.homepageFilters = this.filters;

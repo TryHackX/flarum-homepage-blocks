@@ -155,15 +155,22 @@ export async function preflightCheck(scope, token = null) {
         headers['X-Recaptcha-Token'] = tok;
     }
 
+    // Endpoint jest POST (mutuje kubełek punktów — audyt H2), więc dokładamy token
+    // CSRF, którego rdzeń wymaga dla metod innych niż GET. app.request() robi to sam,
+    // ale tu celowo zostajemy przy surowym fetch (patrz niżej).
+    if (app.session && app.session.csrfToken) {
+        headers['X-CSRF-Token'] = app.session.csrfToken;
+    }
+
     try {
         // Celowo surowy fetch(), a NIE app.request(): pre-flight traktuje 403
         // (captcha_required) oraz 429 (rate_limited) jako NORMALNY przepływ sterowania
         // i obsługuje je sam (patrz niżej). app.request() przy 4xx/5xx odrzuca obietnicę
         // i pokazuje domyślny alert błędu Flarum — tu byłby mylący i dublowałby nasze
-        // własne powiadomienia. To same-origin GET z ciasteczkami sesji, więc nie
-        // potrzebuje pipeline'u app.request() (CSRF/nagłówki). Audyt #7.
+        // własne powiadomienia. Dlatego zostajemy przy surowym fetch: same-origin POST
+        // z ciasteczkami sesji + ręcznie dołożony nagłówek CSRF (wyżej). Audyt #7/H2.
         const res = await fetch(url, {
-            method: 'GET',
+            method: 'POST',
             credentials: 'same-origin',
             headers,
         });
