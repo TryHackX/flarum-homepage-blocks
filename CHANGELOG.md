@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-06-17
+
+> Floxum audit (runda 3) — dwa drobne, powiązane usztywnienia odporności wokół
+> limitera punktów i captcha. **PHP + frontend, bez migracji** — przebuduj assety:
+> `composer update` + `php flarum cache:clear`.
+
+### Fixed
+- **Limit JEDNEJ automatycznej ponownej próby captcha (frontend).** `RandomMovieButtons`
+  i `TrackerStats` ponawiały żądanie po rozwiązaniu captcha bez licznika prób — uporczywe
+  `captcha_required` (zły klucz, awaria Google siteverify, nieudany refill) zapętlało modal
+  w nieskończoność, bez wyjścia poza przeładowanie strony. Teraz maks. jedna ponowna próba,
+  potem błąd propaguje się normalnie. (floxum H#3)
+- **`PointsManager::refillToStart()` sygnalizuje nieudane założenie locka.** Wcześniej
+  ignorował wynik `withLock()` i zawsze zwracał `start`; gdy locka nie dało się założyć,
+  saldo NIE było zapisane, a `RecaptchaGuard::verifyPoints()` i tak obciążał (wciąż pusty)
+  kubełek — użytkownik po poprawnym captcha dostawał natychmiast znów `captcha_required`.
+  Teraz zwraca `null`, a guard oddaje wtedy `captcha_required` (uczciwie, bez fałszywego
+  sukcesu) — spójnie z tym, jak `charge()` już traktuje porażkę locka. (floxum H#4)
+
+### Notes
+- Poprawiono nieaktualny opis `Store::withLock` (mówił „best-effort bez locka" przy
+  `wait=true`; faktycznie od 2.2.1 jest fail-closed — zwraca fallback, $fn nie biegnie).
+- Bez zmian (udokumentowane): filtry LIKE z wiodącym wildcardem — próg 3 znaków (2.3.1)
+  ucina najgorszy skan, a pełny FULLTEXT/MATCH to osobny, cross-engine projekt (odłożony);
+  `resolve()` w callbacku `field()` — rdzeń nie wstrzykuje tam kontenera (przyjęte
+  ograniczenie; klasa jest już singletonem). (floxum repeats)
+
 ## [2.3.1] - 2026-06-17
 
 > Floxum audit (runda 2) — usuwa sprzężenie przez Reflection w `FieldLengthModifier`

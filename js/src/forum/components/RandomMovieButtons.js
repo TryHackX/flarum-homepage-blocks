@@ -87,7 +87,7 @@ export default class RandomMovieButtons extends Component {
      * Perform the random-discussion request, handling a captcha_required 403
      * response by prompting the user and retrying with a fresh token.
      */
-    async performRequest(tagSlug, token = null) {
+    async performRequest(tagSlug, token = null, retryCount = 0) {
         const url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/random?tag=' + encodeURIComponent(tagSlug);
 
         // Token reCAPTCHA w nagłówku, nie w query stringu (poza logami dostępu).
@@ -109,9 +109,14 @@ export default class RandomMovieButtons extends Component {
             }
             if (status === 403 && body && (body.captcha_required || body.error === 'captcha_required')) {
                 if (!recaptchaRequiredFor('random')) throw err;
+                // Maks. JEDNA automatyczna ponowna próba po captcha. Bez tego uporczywe
+                // captcha_required (zła konfiguracja, awaria siteverify, nieudany refill —
+                // audyt H#4) zapętliłoby modal w nieskończoność (audyt H#3). Po limicie
+                // rzucamy — randomize() pokazuje ogólny błąd.
+                if (retryCount >= 1) throw err;
                 const freshToken = await showCaptchaModal('random');
                 if (!freshToken) throw err; // dismissed
-                return this.performRequest(tagSlug, freshToken);
+                return this.performRequest(tagSlug, freshToken, retryCount + 1);
             }
             throw err;
         }

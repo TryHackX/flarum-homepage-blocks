@@ -172,7 +172,7 @@ export default class TrackerStats extends Component {
 
     // ────────────── Data loading ──────────────
 
-    async performStatsRequest(scope, query, token = null) {
+    async performStatsRequest(scope, query, token = null, retryCount = 0) {
         let url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/stats';
         if (query) url += query;
 
@@ -186,9 +186,12 @@ export default class TrackerStats extends Component {
             const body = err && err.response;
             if (status === 403 && body && (body.captcha_required || body.error === 'captcha_required')) {
                 if (!recaptchaRequiredFor(scope)) throw err;
+                // Maks. JEDNA automatyczna ponowna próba po captcha (audyt H#3) — chroni
+                // przed nieskończoną pętlą modala przy uporczywym captcha_required.
+                if (retryCount >= 1) throw err;
                 const fresh = await showCaptchaModal(scope);
                 if (!fresh) throw err;
-                return this.performStatsRequest(scope, query, fresh);
+                return this.performStatsRequest(scope, query, fresh, retryCount + 1);
             }
             throw err;
         }

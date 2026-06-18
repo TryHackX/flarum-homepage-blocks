@@ -203,13 +203,19 @@ class PointsManager
      * Odnów saldo do wartości startowej i zdejmij ewentualną blokadę
      * (wywoływane po poprawnym captcha).
      */
-    public function refillToStart(string $ip): float
+    public function refillToStart(string $ip): ?float
     {
         $start = $this->getStart();
-        $this->store->withLock($this->key($ip), function () use ($ip, $start) {
+        // withLock zwraca fallback (false) gdy locka NIE zdobyto — wtedy zapis się NIE
+        // wykonał. Sygnalizujemy to nullem, żeby verifyPoints nie udawał udanego
+        // odnowienia i nie obciążał wciąż pustego kubełka (audyt H#4). Store loguje
+        // nieudany lock raz na proces, więc operator i tak dostaje sygnał.
+        $ok = $this->store->withLock($this->key($ip), function () use ($ip, $start) {
             $this->writeState($ip, ['balance' => $start, 'ts' => time(), 'blocked_until' => 0]);
-        });
-        return $start;
+            return true;
+        }, true, false);
+
+        return $ok === true ? $start : null;
     }
 
     // ────────────── Magazyn (delegowany do Store) ──────────────

@@ -138,6 +138,18 @@ class RecaptchaGuard
         if ($enforcement === 'captcha' && $canCaptcha) {
             if ($token && $this->verifyToken($token)) {
                 $newBalance = $this->points->refillToStart($ip);
+                // Odnowienie mogło się NIE wykonać, gdy nie udało się założyć locka
+                // magazynu (kontencja / uprawnienia). NIE udajemy sukcesu — inaczej user
+                // po poprawnym captcha dostałby NATYCHMIAST znów captcha_required na pustym
+                // kubełku (audyt H#4). Front ponowi najwyżej raz (H#3).
+                if ($newBalance === null) {
+                    return [
+                        'ok' => false,
+                        'captcha_required' => true,
+                        'balance' => 0,
+                        'cost' => $cost,
+                    ];
+                }
                 $charge = $this->points->charge($ip, $cost);
                 return [
                     'ok' => true,

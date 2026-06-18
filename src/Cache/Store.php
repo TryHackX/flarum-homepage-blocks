@@ -49,9 +49,11 @@ interface Store
      * Wykonaj $fn pod EKSKLUZYWNĄ blokadą skojarzoną z $key — serializuje
      * równoległych workerów obsługujących ten sam klucz (atomowe read-modify-write).
      *
-     * $wait = true  → czekaj na blokadę (limiter: operacje są krótkie). Gdy locka
-     *                 nie da się założyć (skrajna kontencja / brak praw), $fn biegnie
-     *                 best-effort BEZ locka — limiter ma działać, nie padać.
+     * $wait = true  → czekaj na blokadę (limiter: operacje są krótkie). Gdy locka NIE
+     *                 da się założyć (skrajna kontencja / brak praw do storage), zwróć
+     *                 $fallback BEZ uruchamiania $fn — fail-closed, by nie obejść TOCTOU
+     *                 limitera (audyt H2). Wołający MUSI sprawdzić zwrot (np.
+     *                 PointsManager::charge / refillToStart traktują fallback jako porażkę).
      * $wait = false → single-flight: gdy ktoś już trzyma blokadę, NIE czekaj i zwróć
      *                 $fallback bez uruchamiania $fn.
      *
