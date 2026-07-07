@@ -1,6 +1,6 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
-import { preflightCheck, showCaptchaModal, guardActiveFor, showRateLimitNotice } from '../utils/recaptcha';
+import { preflightCheck, guardActiveFor, showRateLimitNotice } from '../utils/ratelimit';
 import { transStr } from '../utils/trans';
 
 /**
@@ -306,9 +306,9 @@ export default class AdvancedFilters extends Component {
      * Sort uses Flarum sort key names (registered in sortMap) which are
      * resolved through DiscussionListState.sortMap() → API sort string.
      *
-     * If reCAPTCHA is enabled for search, a pre-flight check is performed
-     * against the server; when the points bucket is exhausted the captcha
-     * modal is shown and the search is retried after a successful token.
+     * If the points rate limiter is enabled for search, a pre-flight check is
+     * performed against the server; when the points bucket is exhausted the IP is
+     * temporarily blocked and a countdown notice is shown instead of running the query.
      *
      * NOTE (audit C1): this pre-flight is a SOFT, client-side gate. The actual
      * query hits core /api/discussions, which is NOT rate-limited server-side, so
@@ -319,28 +319,16 @@ export default class AdvancedFilters extends Component {
     async applyFilters() {
         app.homepageFilters = this.filters;
 
-        // Pre-flight guard: tylko gdy zakres jest faktycznie chroniony
-        // (reCAPTCHA lub limiter punktowy).
+        // Pre-flight limitera: tylko gdy 'search' jest faktycznie limitowany.
         if (guardActiveFor('search')) {
             const result = await preflightCheck('search');
             if (!result.ok) {
+                // Tymczasowa blokada IP — pokaż odliczanie. Inny błąd — wyjdź cicho.
+                // W obu wypadkach nie wykonujemy zapytania.
                 if (result.blocked) {
-                    // Tymczasowa blokada IP — pokaż odliczanie, nie wykonuj zapytania.
                     showRateLimitNotice(result.retryAfter);
-                    return;
                 }
-                if (result.captchaRequired) {
-                    const token = await showCaptchaModal('search');
-                    if (!token) return; // użytkownik zamknął
-                    const retry = await preflightCheck('search', token);
-                    if (!retry.ok) {
-                        if (retry.blocked) showRateLimitNotice(retry.retryAfter);
-                        return;
-                    }
-                } else {
-                    // Niepowiązany błąd — wyjdź cicho zamiast spamować.
-                    return;
-                }
+                return;
             }
         }
 

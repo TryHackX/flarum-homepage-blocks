@@ -1,14 +1,14 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
-import { recaptchaHeaders, showCaptchaModal, recaptchaRequiredFor, isRateLimitedResponse } from '../utils/recaptcha';
 import { transStr } from '../utils/trans';
 
 /**
  * TrackerStats component.
  *
  * Uses app.homepageStatsCache to persist data across collapse/expand cycles.
- * Internal stats load first (fast DB query), external stats load below (via cached PHP proxy).
+ * Internal stats load first (fast DB query), external stats load below (via the
+ * cached PHP backend that fetches the native OpenTracker XML).
  * External stats auto-refresh every N seconds (configurable).
  */
 export default class TrackerStats extends Component {
@@ -172,34 +172,16 @@ export default class TrackerStats extends Component {
 
     // ────────────── Data loading ──────────────
 
-    async performStatsRequest(scope, query, token = null, retryCount = 0) {
+    async performStatsRequest(query) {
         let url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/stats';
         if (query) url += query;
-
-        // Token reCAPTCHA w nagłówku, nie w query stringu (poza logami dostępu).
-        const headers = token ? { 'X-Recaptcha-Token': token } : await recaptchaHeaders(scope);
-
-        try {
-            return await app.request({ method: 'GET', url, headers });
-        } catch (err) {
-            const status = err && err.status;
-            const body = err && err.response;
-            if (status === 403 && body && (body.captcha_required || body.error === 'captcha_required')) {
-                if (!recaptchaRequiredFor(scope)) throw err;
-                // Maks. JEDNA automatyczna ponowna próba po captcha (audyt H#3) — chroni
-                // przed nieskończoną pętlą modala przy uporczywym captcha_required.
-                if (retryCount >= 1) throw err;
-                const fresh = await showCaptchaModal(scope);
-                if (!fresh) throw err;
-                return this.performStatsRequest(scope, query, fresh, retryCount + 1);
-            }
-            throw err;
-        }
+        // Statystyki nie są bramkowane (pasywne, cache'owane po stronie serwera).
+        return app.request({ method: 'GET', url });
     }
 
     async loadInternalStats() {
         try {
-            const response = await this.performStatsRequest('stats', '');
+            const response = await this.performStatsRequest('');
             app.homepageStatsCache.internalStats = response.data;
         } catch (e) {
             console.error('[HomepageBlocks] Failed to load internal stats:', e);
@@ -211,46 +193,66 @@ export default class TrackerStats extends Component {
     async loadExternalStats() {
         if (this.destroyed) return;
 
+        const cache = app.homepageStatsCache;
         const refreshInterval = this.getRefreshInterval();
         const startTime = Date.now();
 
         try {
-            // Use PHP proxy only (direct fetch is blocked by CORS).
-            // PHP proxy has file-based cache — first request is slow, subsequent are instant.
-            const response = await this.performStatsRequest('external_stats', '?source=external');
+            // Statystyki liczy i cache'uje backend PHP (natywny OpenTracker XML).
+            // Pierwsze zimne pobranie bywa wolne (duży tracker), kolejne są
+            // natychmiastowe ze wspólnego cache.
+            const response = await this.performStatsRequest('?source=external');
 
-            if (response.external) {
-                app.homepageStatsCache.externalStats = {
+            if (response && response.external) {
+                cache.externalStats = {
                     torrents: response.external.torrents || 0,
                     seeds: response.external.seeds || 0,
                     peers: response.external.peers || 0,
                     completed: response.external.completed || 0,
                     uptime: response.external.uptime || 0,
                 };
+                cache.externalLoaded = true;
+                cache.externalPendingSince = null;
+            } else if (response && response.external_pending && !cache.externalStats) {
+                // Backend rozgrzewa cache (jeden worker pobiera od trackera). Trzymaj
+                // spinner i dopytuj częściej, aż cache się zapełni — ZAMIAST gasić loader
+                // po kilku sekundach (to był główny objaw: znikające „Loading…").
+                if (!cache.externalPendingSince) cache.externalPendingSince = startTime;
+                if (Date.now() - cache.externalPendingSince < this.getPendingGiveUpMs()) {
+                    m.redraw();
+                    if (!this.destroyed) this.scheduleRefresh(Math.min(refreshInterval, 3000));
+                    return;
+                }
+                // Zbyt długo bez danych → tracker prawdopodobnie niedostępny; przestań
+                // kręcić spinnerem (dalej cicho dopytujemy — dane wrócą, gdy tracker wróci).
+                cache.externalLoaded = true;
+            } else {
+                // {external:null} bez „pending" = źródło wyłączone / brak URL.
+                cache.externalLoaded = true;
+                cache.externalPendingSince = null;
             }
         } catch (e) {
-            if (isRateLimitedResponse(e && e.status, e && e.response)) {
-                // Blokada IP (tryb klasyczny) — wycofaj się do końca blokady
-                // zamiast odpytywać w pętli.
-                const ra = (e.response && (e.response.retry_after ?? e.response.retryAfter)) || 30;
-                app.homepageStatsCache.externalLoaded = true;
-                m.redraw();
-                if (!this.destroyed) this.scheduleRefresh(Math.max(1000, ra * 1000));
-                return;
-            }
             console.error('[HomepageBlocks] Failed to load external stats:', e);
+            cache.externalLoaded = true;
         }
 
-        app.homepageStatsCache.externalLoaded = true;
         m.redraw();
 
-        // Smart refresh: if request took 3s and interval is 5s → wait 2s.
-        // If request took 6s → refresh immediately.
+        // Smart refresh: nie odświeżaj częściej niż interwał; jeśli żądanie trwało
+        // dłużej — odśwież od razu (ale nie szybciej niż 500 ms).
         if (!this.destroyed) {
             const elapsed = Date.now() - startTime;
             const remaining = Math.max(500, refreshInterval - elapsed);
             this.scheduleRefresh(remaining);
         }
+    }
+
+    // Jak długo najdłużej trzymać spinner „pending", zanim uznamy tracker za
+    // niedostępny. = serwerowy max_time + bufor: po tym czasie single-flight albo
+    // zapełnił cache (mamy dane), albo padł — nie ma sensu kręcić w nieskończoność.
+    getPendingGiveUpMs() {
+        const maxTime = Number(app.forum.attribute('tryhackx-homepage-blocks.external_stats_max_time') || 30);
+        return Math.max(15000, (maxTime + 20) * 1000);
     }
 
     scheduleRefresh(delay) {

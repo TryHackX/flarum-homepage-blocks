@@ -7,64 +7,156 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-07
+
+> Removal of the **random topic buttons** feature and the **custom links** section.
+> Randomization was moved out of the extension (standalone PHP pages in
+> `tryhackx/flarum-advanced-pages`), so `RandomMovieButtons` and the `/random` endpoint
+> are no longer needed; the Links section became redundant. External statistics were
+> simplified to **native** mode only (OpenTracker XML) with a configurable cache and
+> fetch-time limit. reCAPTCHA was **removed entirely** — protection is now a per-IP points
+> rate limiter with temporary IP blocking. **PHP + frontend + cleanup migrations** — update
+> with: `composer update` + `php flarum migrate` + `php flarum cache:clear`.
+> Breaking change (removed public API endpoint and settings) → major bump.
+
+### Removed
+- **Random topic buttons (`RandomMovieButtons`)** — the frontend component and its
+  rendering in `HomepageMainBlock`.
+- **The `POST /api/tryhackx/homepage/random` endpoint** together with `RandomDiscussionController`.
+- **Settings** `random_buttons`, `recaptcha_on_random`, `recaptcha_points_cost_random`
+  — admin panel fields, the "Random Movies" section and the related translations (`section_random`,
+  `random_buttons`, `random_buttons_help`, `random_not_found`).
+- **The `.RandomMovieButtons` styles** (`forum.less`) and the orphaned LESS variables
+  `@hb-btn-hover` and `@hb-btn-text-hover`.
+- **The custom links section (Custom Links).** Removed the `CustomLinks` (forum) and
+  `LinksEditor` (admin) components, the "Custom Links" panel section, the injection of
+  `custom_links_css` into `<head>`, the `.CustomLinks` style (`forum.less`) and the settings
+  `custom_links`, `custom_links_title`, `custom_links_css` along with all the
+  `section_links` / `custom_links_*` translations.
+- **The external-stats "proxy" mode.** External statistics now work in native mode ONLY
+  (OpenTracker XML). Removed the source selector (`external_stats_mode`), the JSON proxy URL
+  (`external_stats_url`), the `fetchExternalStats()` / `normalizeExternalData()` methods,
+  the panel fields and the translations.
+- **All reCAPTCHA.** Classic reCAPTCHA mode, v2 **and** v3, the version selector, site/secret
+  keys, the v3 score threshold, the per-scope `recaptcha_on_stats` / `recaptcha_on_external_stats`
+  / `recaptcha_on_search` toggles and the captcha enforcement option — together with the
+  `CaptchaModal` component, the Google `siteverify` call (`verifyToken`/`postSiteverify`) and the
+  token plumbing (`recaptcha.js`). reCAPTCHA v3 as a points-exhaustion "challenge" is invisible
+  (no user action): it silently passes anyone with a decent score and locks out low-score humans
+  with no recourse — so it was pointless. Statistics are no longer gated at all (passive + cached).
+
+### Added
+- **External-stats cache with a configurable TTL** (`external_stats_cache_ttl`, default 30 s).
+  Within the TTL window nobody hits the tracker — everyone is served from the shared cache
+  (FileStore per-host / CacheStore cross-node). The fetch runs on the backend (not the
+  browser), under single-flight (a non-blocking lock) => at most ONE fetch to the tracker per
+  TTL, globally, regardless of how many users are refreshing.
+- **Configurable fetch-time limit** (`external_stats_max_time`, default 30 s, max 120). A large
+  tracker can take ~a minute to compute stats; the previous hard 5 s cut the fetch short and the
+  UI dropped "Loading…". The connect timeout stays short (a dead host fails fast).
+- **Negative cache after a failed fetch** — after a failure the backend waits a cooldown (30 s)
+  instead of hammering a slow/dead tracker on every poll (protects the worker pool).
+
+### Changed
+- **External stats: the frontend keeps the spinner on `external_pending`** instead of dropping
+  the loader after a few seconds — it waits for the cache to warm up (patience limit = `max_time`
+  + buffer), so under load the stats arrive instead of vanishing. `external_stats_max_time` is
+  serialized to the forum (drives the UI patience); the URLs and the cache TTL stay server-side.
+- **XML parser hardening** (`LIBXML_NONET`) in case of crafted XML from the source
+  (XXE defense-in-depth).
+- **The points limiter is now block-only.** When the per-IP budget for `search` runs out, the IP
+  is temporarily blocked (no captcha). `RecaptchaGuard` → `RateLimiter`; `js/utils/recaptcha.js` →
+  `js/utils/ratelimit.js`; `PointsManager::getEnforcement()` / `refillToStart()` removed. Only the
+  `search` action is metered — statistics are passive (cached + single-flight). The admin section
+  "Security (reCAPTCHA)" is now "Rate limiting". The "skip signed-in users" setting
+  (`recaptcha_skip_authenticated`) was also removed — all visitors are now rate-limited, with guests
+  paying an extra per-action cost (`ratelimit_guest_extra`), which already differentiates them.
+- **Limiter settings renamed to a clean `ratelimit_*` namespace.** The surviving keys dropped the
+  misleading `recaptcha_points_` prefix (`recaptcha_points_enabled` → `ratelimit_enabled`,
+  `…_start` → `ratelimit_start`, `…_cost_search` → `ratelimit_cost_search`, etc.). A migration
+  carries the values over, so existing configuration is preserved.
+- Default Section 1 title and admin labels: "RANDOM & TRACKER STATS" →
+  "TRACKER STATS", "(Random & Stats)" → "(Tracker & Stats)".
+
+### Migrations
+- **`2026_07_07_000000_remove_random_and_links_settings`** — removes the orphaned keys left by
+  the removed features from the `settings` table: `random_buttons`, `recaptcha_on_random`,
+  `recaptcha_points_cost_random`, `custom_links`, `custom_links_title`, `custom_links_css`.
+  This makes `php flarum migrate` on the target site clean the database too. Rollback is a
+  no-op (the removed admin values cannot be restored).
+- **`2026_07_07_000001_remove_external_stats_proxy_settings`** — removes `external_stats_mode`
+  and `external_stats_url` from the `settings` table (statistics are native-only now).
+- **`2026_07_07_000002_remove_recaptcha_settings`** — removes the reCAPTCHA keys from `settings`
+  (`recaptcha_enabled`, `recaptcha_version`, `recaptcha_site_key`, `recaptcha_secret_key`,
+  `recaptcha_on_stats`, `recaptcha_on_external_stats`, `recaptcha_on_search`, `recaptcha_v3_threshold`,
+  `recaptcha_points_enforcement`).
+- **`2026_07_07_000003_remove_skip_authenticated_setting`** — removes `recaptcha_skip_authenticated`
+  from the `settings` table (all visitors are metered now; the guest extra-cost differentiates them).
+- **`2026_07_07_000004_rename_points_settings_to_ratelimit`** — renames the surviving limiter keys
+  `recaptcha_points_*` → `ratelimit_*` in the `settings` table, carrying the values over (reversible).
+
+### Notes
+- Topic randomization is now handled by standalone PHP pages added in
+  `tryhackx/flarum-advanced-pages` (outside this extension).
+
 ## [2.3.2] - 2026-06-17
 
-> Floxum audit (runda 3) — dwa drobne, powiązane usztywnienia odporności wokół
-> limitera punktów i captcha. **PHP + frontend, bez migracji** — przebuduj assety:
+> Floxum audit (round 3) — two small, related resilience hardenings around the points
+> limiter and captcha. **PHP + frontend, no migrations** — rebuild assets:
 > `composer update` + `php flarum cache:clear`.
 
 ### Fixed
-- **Limit JEDNEJ automatycznej ponownej próby captcha (frontend).** `RandomMovieButtons`
-  i `TrackerStats` ponawiały żądanie po rozwiązaniu captcha bez licznika prób — uporczywe
-  `captcha_required` (zły klucz, awaria Google siteverify, nieudany refill) zapętlało modal
-  w nieskończoność, bez wyjścia poza przeładowanie strony. Teraz maks. jedna ponowna próba,
-  potem błąd propaguje się normalnie. (floxum H#3)
-- **`PointsManager::refillToStart()` sygnalizuje nieudane założenie locka.** Wcześniej
-  ignorował wynik `withLock()` i zawsze zwracał `start`; gdy locka nie dało się założyć,
-  saldo NIE było zapisane, a `RecaptchaGuard::verifyPoints()` i tak obciążał (wciąż pusty)
-  kubełek — użytkownik po poprawnym captcha dostawał natychmiast znów `captcha_required`.
-  Teraz zwraca `null`, a guard oddaje wtedy `captcha_required` (uczciwie, bez fałszywego
-  sukcesu) — spójnie z tym, jak `charge()` już traktuje porażkę locka. (floxum H#4)
+- **Limit of ONE automatic captcha retry (frontend).** `RandomMovieButtons` and
+  `TrackerStats` retried the request after solving a captcha with no attempt counter — a
+  persistent `captcha_required` (wrong key, Google siteverify outage, failed refill) looped
+  the modal indefinitely, with no way out other than a page reload. Now at most one retry,
+  then the error propagates normally. (floxum H#3)
+- **`PointsManager::refillToStart()` now signals a failed lock acquisition.** Previously it
+  ignored the `withLock()` result and always returned `start`; when the lock could not be
+  acquired the balance was NOT written, yet `RecaptchaGuard::verifyPoints()` still charged the
+  (still empty) bucket — so after a correct captcha the user immediately got `captcha_required`
+  again. It now returns `null`, and the guard then returns `captcha_required` (honestly, with no
+  false success) — consistent with how `charge()` already treats a lock failure. (floxum H#4)
 
 ### Notes
-- Poprawiono nieaktualny opis `Store::withLock` (mówił „best-effort bez locka" przy
-  `wait=true`; faktycznie od 2.2.1 jest fail-closed — zwraca fallback, $fn nie biegnie).
-- Bez zmian (udokumentowane): filtry LIKE z wiodącym wildcardem — próg 3 znaków (2.3.1)
-  ucina najgorszy skan, a pełny FULLTEXT/MATCH to osobny, cross-engine projekt (odłożony);
-  `resolve()` w callbacku `field()` — rdzeń nie wstrzykuje tam kontenera (przyjęte
-  ograniczenie; klasa jest już singletonem). (floxum repeats)
+- Fixed an outdated `Store::withLock` description (it said "best-effort without a lock" for
+  `wait=true`; in fact since 2.2.1 it is fail-closed — it returns the fallback, `$fn` does not run).
+- No change (documented): LIKE filters with a leading wildcard — the 3-character threshold (2.3.1)
+  cuts the worst scan, while a full FULLTEXT/MATCH is a separate, cross-engine project (deferred);
+  `resolve()` in the `field()` callback — core does not inject the container there (accepted
+  limitation; the class is already a singleton). (floxum repeats)
 
 ## [2.3.1] - 2026-06-17
 
-> Floxum audit (runda 2) — usuwa sprzężenie przez Reflection w `FieldLengthModifier`
-> na rzecz publicznego API schematu, bramkuje filtry LIKE progiem 3 znaków i wiąże
-> modyfikator jako singleton kontenera. **PHP + frontend, bez migracji** — przebuduj
-> assety: `composer update` + `php flarum cache:clear`.
+> Floxum audit (round 2) — removes the Reflection coupling in `FieldLengthModifier` in
+> favour of the public schema API, gates LIKE filters with a 3-character threshold and binds
+> the modifier as a container singleton. **PHP + frontend, no migrations** — rebuild
+> assets: `composer update` + `php flarum cache:clear`.
 
 ### Changed
-- **`FieldLengthModifier` nie używa już Reflection na prywatnym `$rules` rdzenia.**
-  Korzysta z publicznego API schematu Flarum 2.x — `getRules()` (odczyt),
-  `rules([], …, override: true)` (czyszczenie) oraz `rule()` / `minLength()` /
-  `maxLength()` (odtworzenie) — więc nadpisanie limitów długości tytułu/treści nie jest
-  już sprzężone z wnętrzem rdzenia i nie zepsuje się po cichu przy refaktorze schematu
-  (fail-safe do limitów rdzenia + log raz na proces). (floxum HIGH: Reflection na `$rules`)
-- **Zniknął diagnostyczny zapis do ustawień na ścieżce GET.** Usunięcie Reflection
-  zlikwidowało potrzebę flagi `field_length_reflection_failed`, więc zapis
-  `settings->set()` przy serializacji `GET /api/discussions` (oraz ostrzeżenie w adminie
-  i klucze locale) został usunięty. (floxum: zapis do ustawień podczas GET)
+- **`FieldLengthModifier` no longer uses Reflection on core's private `$rules`.**
+  It uses the Flarum 2.x public schema API — `getRules()` (read),
+  `rules([], …, override: true)` (clear) and `rule()` / `minLength()` /
+  `maxLength()` (rebuild) — so overriding the title/content length limits is no longer
+  coupled to core internals and won't break silently on a schema refactor
+  (fail-safe to core limits + logs once per process). (floxum HIGH: Reflection on `$rules`)
+- **The diagnostic settings write on the GET path is gone.** Removing Reflection eliminated
+  the need for the `field_length_reflection_failed` flag, so the `settings->set()` write during
+  `GET /api/discussions` serialization (plus the admin warning and locale keys) was removed.
+  (floxum: settings write during GET)
 
 ### Performance
-- **Filtry wyszukiwania `title` / `user` wymagają teraz ≥ 3 znaków.** Oba budują
-  `LIKE '%wartość%'` (wiodący wildcard → pełny skan tabeli); zapytania 1–2-znakowe są
-  pomijane po stronie serwera (autorytatywnie) i nie są już wysyłane przez frontend,
-  co ucina najgorszy skan na każdym debounce'owanym znaku. (floxum: skany LIKE)
+- **The `title` / `user` search filters now require ≥ 3 characters.** Both build
+  `LIKE '%value%'` (leading wildcard → full table scan); 1–2-character queries are skipped
+  server-side (authoritatively) and are no longer sent by the frontend, which cuts the worst
+  scan on every debounced keystroke. (floxum: LIKE scans)
 
 ### Conventions
-- **`FieldLengthModifier` związany jako singleton w `StoreProvider`** — zastępuje
-  file-scope'ową, leniwą referencję `resolve()` w extend.php; klasa jest teraz
-  zarządzana przez kontener (widoczna/podmienialna). Callbacki field() nadal ją
-  pobierają (rdzeń nie wstrzykuje kontenera do field()), ale jako tani lookup
-  singletonu. (floxum: resolve()/file-scope singleton)
+- **`FieldLengthModifier` bound as a singleton in `StoreProvider`** — replaces the
+  file-scoped, lazy `resolve()` reference in extend.php; the class is now managed by the
+  container (visible/replaceable). The field() callbacks still fetch it (core does not inject
+  the container into field()), but as a cheap singleton lookup. (floxum: resolve()/file-scope
+  singleton)
 
 ## [2.3.0] - 2026-06-17
 

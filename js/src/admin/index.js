@@ -2,7 +2,6 @@ import app from 'flarum/admin/app';
 import { extend } from 'flarum/common/extend';
 import ResetExtensionSettingsModal from 'flarum/admin/components/ResetExtensionSettingsModal';
 import SupportModal from './components/SupportModal';
-import LinksEditor from './components/LinksEditor';
 
 const S = 'tryhackx-homepage-blocks';
 
@@ -96,7 +95,7 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             setting: `${S}.section1_title`,
             type: 'text',
             label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.section1_title'),
-            placeholder: 'RANDOM & TRACKER STATS',
+            placeholder: 'TRACKER STATS',
         })
         .registerSetting({
             setting: `${S}.section2_title`,
@@ -151,18 +150,6 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             placeholder: 'Resolution',
         })
 
-        // ──────────── RANDOM BUTTONS ────────────
-        .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_random')))
-        .registerSetting(
-            textareaSetting(
-                'random_buttons',
-                app.translator.trans('tryhackx-homepage-blocks.admin.settings.random_buttons'),
-                app.translator.trans('tryhackx-homepage-blocks.admin.settings.random_buttons_help'),
-                '[{"label":"Random Tag Name","tag":"your-tag-slug"}]',
-                5
-            )
-        )
-
         // ──────────── TRACKER INFO ────────────
         .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_tracker')))
         .registerSetting({
@@ -208,16 +195,6 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_enabled'),
         })
         .registerSetting({
-            setting: `${S}.external_stats_mode`,
-            type: 'select',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_mode'),
-            options: {
-                native: 'Native (OpenTracker XML)',
-                proxy: 'Proxy (JSON)',
-            },
-            default: 'native',
-        })
-        .registerSetting({
             setting: `${S}.external_stats_native_url`,
             type: 'text',
             label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_native_url'),
@@ -225,11 +202,22 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             placeholder: 'http://1.1.1.1:6969/stats?mode=everything',
         })
         .registerSetting({
-            setting: `${S}.external_stats_url`,
-            type: 'text',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_url'),
-            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_url_help'),
-            placeholder: 'https://your-domain.com/api/tracker-stats.php',
+            setting: `${S}.external_stats_cache_ttl`,
+            type: 'number',
+            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_cache_ttl'),
+            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_cache_ttl_help'),
+            placeholder: '30',
+            min: 1,
+            max: 3600,
+        })
+        .registerSetting({
+            setting: `${S}.external_stats_max_time`,
+            type: 'number',
+            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_max_time'),
+            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.external_stats_max_time_help'),
+            placeholder: '30',
+            min: 1,
+            max: 120,
         })
         .registerSetting({
             setting: `${S}.external_stats_refresh`,
@@ -240,36 +228,6 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             min: 1,
             max: 300,
         })
-
-        // ──────────── CUSTOM LINKS ────────────
-        .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_links')))
-        .registerSetting({
-            setting: `${S}.custom_links_title`,
-            type: 'text',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_title'),
-            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_title_help'),
-            placeholder: 'Useful links',
-        })
-        .registerSetting(function () {
-            const setting = this.setting(S + '.custom_links');
-            return m('div', { className: 'Form-group' }, [
-                m('label', app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links')),
-                m('div', { className: 'helpText' }, app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_help')),
-                m(LinksEditor, {
-                    value: () => setting(),
-                    onchange: (json) => setting(json),
-                }),
-            ]);
-        })
-        .registerSetting(
-            textareaSetting(
-                'custom_links_css',
-                app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_css'),
-                app.translator.trans('tryhackx-homepage-blocks.admin.settings.custom_links_css_help'),
-                '.glow-on-hover { … }\n@keyframes glowing { … }',
-                10
-            )
-        )
 
         // ──────────── CONTENT SETTINGS ────────────
         .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_content')))
@@ -374,71 +332,8 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             ]);
         })
 
-        // ──────────── reCAPTCHA SECURITY ────────────
+        // ──────────── RATE LIMITING ────────────
         .registerSetting(sectionHeader(app.translator.trans('tryhackx-homepage-blocks.admin.section_security')))
-        .registerSetting({
-            setting: `${S}.recaptcha_enabled`,
-            type: 'bool',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_enabled'),
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_version`,
-            type: 'select',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_version'),
-            options: {
-                v2: 'reCAPTCHA v2',
-                v3: 'reCAPTCHA v3',
-            },
-            default: 'v3',
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_site_key`,
-            type: 'text',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_site_key'),
-            placeholder: 'Site Key',
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_secret_key`,
-            type: 'text',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_secret_key'),
-            placeholder: 'Secret Key',
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_on_random`,
-            type: 'bool',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_on_random'),
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_on_stats`,
-            type: 'bool',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_on_stats'),
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_on_external_stats`,
-            type: 'bool',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_on_external_stats'),
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_skip_authenticated`,
-            type: 'bool',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_skip_authenticated'),
-            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_skip_authenticated_help'),
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_v3_threshold`,
-            type: 'number',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_v3_threshold'),
-            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_v3_threshold_help'),
-            placeholder: '0.5',
-            min: 0,
-            max: 1,
-            step: 0.1,
-        })
-        .registerSetting({
-            setting: `${S}.recaptcha_on_search`,
-            type: 'bool',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_on_search'),
-        })
         .registerSetting({
             setting: `${S}.search_debounce_ms`,
             type: 'number',
@@ -452,13 +347,13 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
 
         // ──────────── POINTS-BASED RATE LIMITING ────────────
         .registerSetting({
-            setting: `${S}.recaptcha_points_enabled`,
+            setting: `${S}.ratelimit_enabled`,
             type: 'bool',
-            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enabled'),
-            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.recaptcha_points_enabled_help'),
+            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.ratelimit_enabled'),
+            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.ratelimit_enabled_help'),
         })
         .registerSetting(function () {
-            const enabled = settingIsTruthy(this.setting(S + '.recaptcha_points_enabled')());
+            const enabled = settingIsTruthy(this.setting(S + '.ratelimit_enabled')());
             const t = (k) => app.translator.trans('tryhackx-homepage-blocks.admin.settings.' + k);
 
             const numField = (key, labelKey, helpKey, placeholder, step, min, max, disabledExtra) =>
@@ -490,10 +385,8 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                     helpKey ? m('div', { className: 'helpText' }, t(helpKey)) : null,
                 ]);
 
-            // Po wyczerpaniu punktów: captcha lub blokada IP (czas + reset budżetu).
-            const enforcement = this.setting(S + '.recaptcha_points_enforcement')() === 'block' ? 'block' : 'captcha';
-            const blockMode = enforcement === 'block';
-            const blockReset = this.setting(S + '.recaptcha_points_block_reset')() === 'empty' ? 'empty' : 'full';
+            // Po wyczerpaniu punktów: tymczasowa blokada IP (czas + reset budżetu).
+            const blockReset = this.setting(S + '.ratelimit_block_reset')() === 'empty' ? 'empty' : 'full';
 
             const row = (children) => m('div', { className: 'HomepageBlocks-pointsRow' }, children);
             const heading = (key) => m('h4', { className: 'HomepageBlocks-pointsHeading' }, t(key));
@@ -501,30 +394,26 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             return m('div', { className: 'Form-group HomepageBlocks-pointsGroup' + (enabled ? '' : ' is-disabled') }, [
                 // Budżet i odnawianie
                 row([
-                    numField.call(this, 'recaptcha_points_start', 'recaptcha_points_start', 'recaptcha_points_start_help', '10', 0.1, 0, 10000),
-                    numField.call(this, 'recaptcha_points_refill_seconds', 'recaptcha_points_refill_seconds', 'recaptcha_points_refill_seconds_help', '15', 1, 1, 86400),
-                    numField.call(this, 'recaptcha_points_refill_amount', 'recaptcha_points_refill_amount', 'recaptcha_points_refill_amount_help', '1', 0.1, 0, 10000),
+                    numField.call(this, 'ratelimit_start', 'ratelimit_start', 'ratelimit_start_help', '10', 0.1, 0, 10000),
+                    numField.call(this, 'ratelimit_refill_seconds', 'ratelimit_refill_seconds', 'ratelimit_refill_seconds_help', '15', 1, 1, 86400),
+                    numField.call(this, 'ratelimit_refill_amount', 'ratelimit_refill_amount', 'ratelimit_refill_amount_help', '1', 0.1, 0, 10000),
                 ]),
 
                 // Koszty akcji (razem z dopłatą dla gości)
-                heading('points_costs_header'),
+                heading('ratelimit_costs_header'),
                 row([
-                    numField.call(this, 'recaptcha_points_guest_extra', 'recaptcha_points_guest_extra', 'recaptcha_points_guest_extra_help', '2', 0.1, 0, 10000),
-                    numField.call(this, 'recaptcha_points_cost_random', 'recaptcha_points_cost_random', null, '0.5', 0.1, 0, 10000),
-                    numField.call(this, 'recaptcha_points_cost_search', 'recaptcha_points_cost_search', null, '3', 0.1, 0, 10000),
+                    numField.call(this, 'ratelimit_guest_extra', 'ratelimit_guest_extra', 'ratelimit_guest_extra_help', '2', 0.1, 0, 10000),
+                    numField.call(this, 'ratelimit_cost_search', 'ratelimit_cost_search', null, '3', 0.1, 0, 10000),
                 ]),
 
-                // Po wyczerpaniu punktów (etykieta pierwszego pola pełni rolę nagłówka)
+                // Po wyczerpaniu punktów → tymczasowa blokada IP
+                heading('ratelimit_block_header'),
                 row([
-                    selectField.call(this, 'recaptcha_points_enforcement', 'recaptcha_points_enforcement', 'recaptcha_points_enforcement_help', enforcement, [
-                        { value: 'captcha', labelKey: 'recaptcha_points_enforcement_captcha' },
-                        { value: 'block', labelKey: 'recaptcha_points_enforcement_block' },
-                    ], false),
-                    numField.call(this, 'recaptcha_points_block_seconds', 'recaptcha_points_block_seconds', 'recaptcha_points_block_seconds_help', '60', 1, 1, 86400, !blockMode),
-                    selectField.call(this, 'recaptcha_points_block_reset', 'recaptcha_points_block_reset', 'recaptcha_points_block_reset_help', blockReset, [
-                        { value: 'full', labelKey: 'recaptcha_points_block_reset_full' },
-                        { value: 'empty', labelKey: 'recaptcha_points_block_reset_empty' },
-                    ], !blockMode),
+                    numField.call(this, 'ratelimit_block_seconds', 'ratelimit_block_seconds', 'ratelimit_block_seconds_help', '60', 1, 1, 86400),
+                    selectField.call(this, 'ratelimit_block_reset', 'ratelimit_block_reset', 'ratelimit_block_reset_help', blockReset, [
+                        { value: 'full', labelKey: 'ratelimit_block_reset_full' },
+                        { value: 'empty', labelKey: 'ratelimit_block_reset_empty' },
+                    ]),
                 ]),
             ]);
         });

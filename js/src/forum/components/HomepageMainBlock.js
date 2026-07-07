@@ -1,14 +1,12 @@
 import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
-import RandomMovieButtons from './RandomMovieButtons';
 import TrackerInfo from './TrackerInfo';
 import TrackerStats from './TrackerStats';
-import CustomLinks from './CustomLinks';
 
 /**
  * HomepageMainBlock.
  *
- * Renders all four subsections with dividers between them.
+ * Renders the tracker info + stats subsections with a divider between them.
  * Orphan dividers around hidden sections are hidden via CSS:
  *   .HomepageMainBlock-divider:first-child
  *   .HomepageMainBlock-divider:last-child
@@ -17,13 +15,9 @@ import CustomLinks from './CustomLinks';
 export default class HomepageMainBlock extends Component {
     view() {
         return m('div', { className: 'HomepageMainBlock' }, [
-            m(RandomMovieButtons),
-            m('div', { className: 'HomepageMainBlock-divider' }),
             m(TrackerInfo),
             m('div', { className: 'HomepageMainBlock-divider' }),
             m(TrackerStats),
-            m('div', { className: 'HomepageMainBlock-divider' }),
-            m(CustomLinks),
         ]);
     }
 
@@ -39,14 +33,14 @@ export default class HomepageMainBlock extends Component {
 
     /**
      * Hide the parent HomepageSection if all child components rendered nothing.
-     * When TrackerInfo/RandomMovieButtons/TrackerStats/CustomLinks all return null,
+     * When TrackerInfo/TrackerStats all return null,
      * the .HomepageMainBlock contains only dividers — hide the whole section.
      */
     adjustDividers(vnode) {
         const el = vnode.dom;
         if (!el) return;
         const hasContent = !!el.querySelector(
-            '.RandomMovieButtons, .TrackerInfo, .TrackerStats, .CustomLinks'
+            '.TrackerInfo, .TrackerStats'
         );
         // Walk up to find the surrounding HomepageSection (CollapsibleSection wrapper)
         let wrapper = el.parentElement;

@@ -20,9 +20,7 @@
 @hb-toggle: #3b82f6;
 @hb-url: #2563eb;
 @hb-stat-value: #1f2937;
-@hb-btn-hover: #d4d7de;
 @hb-btn-text: #1f2937;
-@hb-btn-text-hover: #111827;
 @hb-placeholder: rgba(107, 114, 128, 0.6);
 
 // ========================================
@@ -97,45 +95,6 @@
     &-divider:last-child,
     &-divider + &-divider {
         display: none;
-    }
-}
-
-// ========================================
-// Random Movie Buttons
-// ========================================
-
-.RandomMovieButtons {
-    display: flex;
-    justify-content: center;
-    gap: 20px;
-    flex-wrap: wrap;
-    padding: 10px 0;
-
-    &-btn {
-        background: @hb-header-bg !important;
-        color: @hb-btn-text !important;
-        border: 1px solid @hb-border !important;
-        padding: 10px 25px !important;
-        border-radius: 4px !important;
-        font-size: 13px;
-        font-weight: 500;
-        transition: all 0.2s ease;
-        min-width: 180px;
-        text-align: center;
-
-        &:hover {
-            background: @hb-btn-hover !important;
-            border-color: @hb-accent !important;
-            color: @hb-btn-text-hover !important;
-        }
-
-        &.loading {
-            opacity: 0.7;
-        }
-
-        .icon {
-            margin-right: 6px;
-        }
     }
 }
 
@@ -262,41 +221,6 @@
         height: 1px;
         background: linear-gradient(to right, transparent, @hb-divider, transparent);
         margin: 10px 40px;
-    }
-}
-
-// ========================================
-// Custom Links
-// ========================================
-
-.CustomLinks {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 0;
-
-    &-title {
-        font-size: 14px;
-        text-align: center;
-    }
-
-    &-list {
-        display: flex;
-        justify-content: center;
-        gap: 25px;
-        flex-wrap: wrap;
-    }
-
-    &-link {
-        font-size: 15px;
-        text-decoration: none;
-        transition: all 0.2s ease;
-
-        &:hover {
-            text-decoration: underline;
-            filter: brightness(1.2);
-        }
     }
 }
 
@@ -444,64 +368,6 @@
 }
 
 // ========================================
-// Captcha Modal
-// ========================================
-
-.HomepageBlocks-CaptchaModal {
-    .Modal-dialog {
-        max-width: 420px;
-        margin: 0 auto;
-    }
-
-    &-body {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding: 24px;
-        text-align: center;
-    }
-
-    &-description {
-        font-size: 14px;
-        color: @hb-text;
-        line-height: 1.5;
-        margin: 0;
-    }
-
-    &-widget {
-        display: flex;
-        justify-content: center;
-        min-height: 78px;
-    }
-
-    &-status {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        font-size: 13px;
-        color: @hb-text-muted;
-
-        .LoadingIndicator {
-            margin: 0;
-        }
-    }
-
-    &-error {
-        font-size: 13px;
-        color: @hb-accent;
-        padding: 4px 0;
-    }
-
-    &-actions {
-        display: flex;
-        justify-content: center;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-}
-
-// ========================================
 // Dark Theme Overrides
 // ========================================
 
@@ -530,17 +396,6 @@ body.HomepageBlocks--dark {
 
     .HomepageMainBlock-divider {
         background: linear-gradient(to right, transparent, #0f3460, transparent);
-    }
-
-    .RandomMovieButtons-btn {
-        background: #16213e !important;
-        color: #e0e0e0 !important;
-        border-color: #0f3460 !important;
-
-        &:hover {
-            background: #1d2f50 !important;
-            color: #ffffff !important;
-        }
     }
 
     .TrackerInfo-message {
@@ -627,20 +482,6 @@ body.HomepageBlocks--dark {
             background: rgba(255, 107, 107, 0.28);
         }
     }
-
-    .HomepageBlocks-CaptchaModal {
-        &-description {
-            color: #e0e0e0;
-        }
-
-        &-status {
-            color: #8892a0;
-        }
-
-        &-error {
-            color: #ff6b6b;
-        }
-    }
 }
 
 // ========================================
@@ -648,17 +489,6 @@ body.HomepageBlocks--dark {
 // ========================================
 
 @media (max-width: 768px) {
-    .RandomMovieButtons {
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-
-        &-btn {
-            width: 100%;
-            max-width: 280px;
-        }
-    }
-
     .TrackerStats-grid {
         gap: 15px;
     }

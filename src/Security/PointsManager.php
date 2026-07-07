@@ -26,11 +26,9 @@ use TryHackX\HomepageBlocks\Concerns\ResolvesClientIp;
  *   - Kubełek odnawia się w czasie (+refill_amount co refill_seconds), do `start`
  *     — dzięki temu normalne, regularne korzystanie nigdy nie wyczerpuje puli,
  *     ale szybkie spamowanie ją drenuje.
- *   - Gdy zabraknie punktów, egzekwowanie zależy od trybu (`enforcement`):
- *       * 'captcha' — użytkownik rozwiązuje reCAPTCHA, co odnawia kubełek,
- *       * 'block'   — IP zostaje tymczasowo zablokowane na `block_seconds`
- *                     (nie wymaga reCAPTCHA). Po wygaśnięciu blokady kubełek
- *                     jest resetowany do pełna.
+ *   - Gdy zabraknie punktów, IP zostaje tymczasowo zablokowane na `block_seconds`.
+ *     Po wygaśnięciu blokady kubełek jest resetowany (pełny lub od zera — patrz
+ *     `block_reset`). W trakcie blokady odnawianie jest zamrożone.
  *
  * IP wyznaczamy przez rdzeń Flarum (atrybut `ipAddress`), NIE przez spoofowalne
  * nagłówki — patrz {@see ResolvesClientIp}.
@@ -46,26 +44,15 @@ class PointsManager
 
     public function isEnabled(): bool
     {
-        return (bool) $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_enabled');
+        return (bool) $this->settings->get('tryhackx-homepage-blocks.ratelimit_enabled');
     }
 
     /**
-     * Tryb egzekwowania po wyczerpaniu punktów: 'captcha' lub 'block'.
-     * Domyślnie 'captcha' (zachowanie zgodne wstecz).
-     */
-    public function getEnforcement(): string
-    {
-        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_enforcement');
-        $mode = is_string($raw) ? strtolower(trim($raw)) : '';
-        return $mode === 'block' ? 'block' : 'captcha';
-    }
-
-    /**
-     * Czas blokady IP w sekundach (tryb 'block'). Domyślnie 60, min 1.
+     * Czas blokady IP w sekundach. Domyślnie 60, min 1.
      */
     public function getBlockSeconds(): int
     {
-        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_block_seconds');
+        $raw = $this->settings->get('tryhackx-homepage-blocks.ratelimit_block_seconds');
         return ($raw === null || $raw === '') ? 60 : max(1, (int) $raw);
     }
 
@@ -79,7 +66,7 @@ class PointsManager
      */
     public function getBlockReset(): string
     {
-        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_block_reset');
+        $raw = $this->settings->get('tryhackx-homepage-blocks.ratelimit_block_reset');
         $mode = is_string($raw) ? strtolower(trim($raw)) : '';
         return $mode === 'empty' ? 'empty' : 'full';
     }
@@ -89,19 +76,17 @@ class PointsManager
      */
     public function getCost(string $scope, bool $isGuest): float
     {
+        // Mierzona jest tylko akcja 'search'; inne zakresy nie trafiają tu w praktyce.
         $defaults = [
-            'random' => 0.5,
             'search' => 3.0,
-            'stats' => 1.0,
-            'external_stats' => 1.0,
         ];
 
-        $key = 'tryhackx-homepage-blocks.recaptcha_points_cost_' . $scope;
+        $key = 'tryhackx-homepage-blocks.ratelimit_cost_' . $scope;
         $raw = $this->settings->get($key);
         $cost = ($raw === null || $raw === '') ? ($defaults[$scope] ?? 1.0) : (float) $raw;
 
         if ($isGuest) {
-            $extra = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_guest_extra');
+            $extra = $this->settings->get('tryhackx-homepage-blocks.ratelimit_guest_extra');
             $extra = ($extra === null || $extra === '') ? 2.0 : (float) $extra;
             $cost += $extra;
         }
@@ -111,19 +96,19 @@ class PointsManager
 
     public function getStart(): float
     {
-        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_start');
+        $raw = $this->settings->get('tryhackx-homepage-blocks.ratelimit_start');
         return ($raw === null || $raw === '') ? 10.0 : max(0.0, (float) $raw);
     }
 
     public function getRefillSeconds(): int
     {
-        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_refill_seconds');
+        $raw = $this->settings->get('tryhackx-homepage-blocks.ratelimit_refill_seconds');
         return ($raw === null || $raw === '') ? 15 : max(1, (int) $raw);
     }
 
     public function getRefillAmount(): float
     {
-        $raw = $this->settings->get('tryhackx-homepage-blocks.recaptcha_points_refill_amount');
+        $raw = $this->settings->get('tryhackx-homepage-blocks.ratelimit_refill_amount');
         return ($raw === null || $raw === '') ? 1.0 : max(0.0, (float) $raw);
     }
 
@@ -197,25 +182,6 @@ class PointsManager
             $this->writeState($ip, $state);
             return ['ok' => true, 'balance' => (float) $state['balance']];
         }, true, ['ok' => false, 'balance' => 0.0]); // fail-closed: brak locka → DENY (audyt H2)
-    }
-
-    /**
-     * Odnów saldo do wartości startowej i zdejmij ewentualną blokadę
-     * (wywoływane po poprawnym captcha).
-     */
-    public function refillToStart(string $ip): ?float
-    {
-        $start = $this->getStart();
-        // withLock zwraca fallback (false) gdy locka NIE zdobyto — wtedy zapis się NIE
-        // wykonał. Sygnalizujemy to nullem, żeby verifyPoints nie udawał udanego
-        // odnowienia i nie obciążał wciąż pustego kubełka (audyt H#4). Store loguje
-        // nieudany lock raz na proces, więc operator i tak dostaje sygnał.
-        $ok = $this->store->withLock($this->key($ip), function () use ($ip, $start) {
-            $this->writeState($ip, ['balance' => $start, 'ts' => time(), 'blocked_until' => 0]);
-            return true;
-        }, true, false);
-
-        return $ok === true ? $start : null;
     }
 
     // ────────────── Magazyn (delegowany do Store) ──────────────

@@ -1,10 +1,9 @@
 # TryHackX Homepage Blocks
 
 A Flarum extension that adds powerful customisable homepage blocks:
-random-discussion buttons, tracker information panels, dual statistics
-(internal database + external OpenTracker), advanced discussion filters,
-custom links, content-validation overrides, and a reCAPTCHA-protected
-stats API.
+tracker information panels, dual statistics (internal database + external
+OpenTracker), advanced discussion filters, content-validation overrides,
+and a per-IP rate limiter.
 
 > Designed to plug cleanly into a tracker-style Flarum forum. Works hand
 > in hand with the rest of the TryHackX extension family —
@@ -23,9 +22,9 @@ stats API.
 
 *Mobile view — discussion list rendered with different combinations of TryHackX extensions (thumbnails + ratings + views, thumbnails + views, thumbnails only, ratings only, views only, vanilla Flarum).*
 
-![TryHackX Homepage Blocks admin settings — sections, random buttons, tracker info, statistics, custom links, content limits and reCAPTCHA](assets/TryHackX_Homepage_Blocks.png)
+![TryHackX Homepage Blocks admin settings — sections, tracker info, statistics, content limits and rate limiting](assets/TryHackX_Homepage_Blocks.png)
 
-*TryHackX Homepage Blocks admin panel — section toggles, theme mode, custom filter labels, random-button JSON, tracker info / announce URLs, internal & external (OpenTracker) statistics, custom links JSON, content title / length overrides, reCAPTCHA gating and rate-limit settings.*
+*TryHackX Homepage Blocks admin panel — section toggles, theme mode, custom filter labels, tracker info / announce URLs, internal & external (OpenTracker) statistics, content title / length overrides and rate-limit settings.*
 
 ![Desktop discussion list with the full TryHackX stack — thumbnail sliders, star ratings and the magnet button](assets/ALL_VIA_MAGNETS.png)
 
@@ -47,9 +46,6 @@ You can also find the donation option in the extension's admin settings panel.
 
 ## Features
 
-- **Random discussion buttons** — JSON-configurable buttons that pick a
-  random discussion from a specific tag ("Random HD movie", "Random TV
-  series", …).
 - **Tracker info panel** — display BitTorrent tracker announce URLs with
   copy-to-clipboard support, a custom heading and sub-heading.
 - **Dual statistics system** — show internal forum stats (from the
@@ -57,17 +53,14 @@ You can also find the donation option in the extension's admin settings panel.
   - **Internal stats** — torrents, users, magnets, downloads, views,
     average rating (pulled from the forum database).
   - **External stats (OpenTracker)** — seeds, peers, completed
-    downloads, uptime, in two modes:
-    - **Native** — direct connection to the OpenTracker XML endpoint
-      (`/stats?mode=everything`).
-    - **Proxy** — JSON proxy URL for environments where direct access
-      isn't possible.
-  - Configurable refresh interval (1–300 s).
-- **Custom links bar** — add link buttons in Section 1 from a simple admin
-  editor (name, URL, colour, open-in-new-tab, reorder) with an optional section
-  heading. Style them freely: give a link a **CSS class** and paste your rules
-  into the **Custom CSS** box (e.g. a glow-on-hover button). URLs and classes are
-  sanitised (no `javascript:` / `data:`).
+    downloads, uptime, fetched directly from the OpenTracker XML endpoint
+    (`/stats?mode=everything`).
+  - **Shared cache + single-flight** — the backend fetches the tracker at
+    most once per *cache lifetime*, globally, and serves everyone from one
+    shared cache; when a fetch is already running, other requests are never
+    triggered and get the cached/stale value instead. Configurable **cache
+    lifetime**, **max fetch time** (large trackers can take ~a minute to
+    compute stats) and client **refresh interval**.
 - **Advanced discussion filters** — filter bar for the discussion list
   with 7 filter types:
   - Title search
@@ -88,19 +81,15 @@ You can also find the donation option in the extension's admin settings panel.
   - Title length: 1–200 characters (`varchar(200)` column max).
   - Content length: 0–16,000,000 characters (`mediumtext` column max).
   - Each toggle is independent.
-- **Spam protection & rate limiting** — protect the random / search /
-  stats endpoints with optional reCAPTCHA v2 / v3 **and/or** a built-in
-  per-IP **points limiter**. Each visitor has a budget that refills over
-  time; when it runs out you choose what happens: require a reCAPTCHA, or
-  **temporarily block the IP** for a configurable duration — block mode
-  needs no reCAPTCHA at all and shows the visitor a friendly countdown.
-  Client IPs are resolved from Flarum core (proxy-aware), so the limit
-  can't be bypassed with a spoofed `X-Forwarded-For` header, and the
-  reCAPTCHA token is sent in an `X-Recaptcha-Token` header (never in the URL,
-  so it stays out of access logs). The per-IP budget is kept on the local
-  filesystem with per-IP locking — ideal for a single server; if you run
-  several app servers behind a load balancer, front them with a shared store.
-- **Collapsible sections** — Section 1 (random buttons + stats) can be
+- **Rate limiting** — a built-in per-IP **points limiter** on the search /
+  filters action. Each visitor has a budget that refills over time; when it
+  runs out the IP is **temporarily blocked** for a configurable duration and
+  the visitor sees a friendly countdown. Client IPs are resolved from Flarum
+  core (proxy-aware), so the limit can't be bypassed with a spoofed
+  `X-Forwarded-For` header. The per-IP budget is kept on the local filesystem
+  with per-IP locking — ideal for a single server; if you run several app
+  servers behind a load balancer, front them with a shared store (Redis).
+- **Collapsible sections** — Section 1 (tracker + stats) can be
   collapsed by default to save space.
 - **Hide hero banner** — optional toggle to hide Flarum's default hero
   banner.
@@ -149,42 +138,16 @@ php flarum cache:clear
 | Section | Description |
 | --- | --- |
 | **General** | Section titles, default-collapsed state, hero banner toggle, tag display options. |
-| **Random Movies** | JSON configuration for random-discussion buttons. |
 | **Tracker Info** | Tracker heading, sub-heading, announce URLs. |
-| **Tracker Statistics** | Toggle internal stats, configure external OpenTracker source (native or proxy mode), refresh interval. |
-| **Custom Links** | Add / reorder Section 1 link buttons (name, URL, colour, new-tab) and set an optional section title. |
+| **Tracker Statistics** | Toggle internal stats, set the OpenTracker XML URL, cache lifetime, max fetch time and client refresh interval. |
 | **Content Settings** | Override title and content length limits. |
-| **Security (reCAPTCHA)** | Optional reCAPTCHA v2 / v3, plus the per-IP points rate limiter. Pick what happens when a visitor runs out of points: *Show reCAPTCHA* or *Temporarily block the IP* (with a configurable block duration). |
-
-### Random buttons format
-
-```json
-[
-  {"label": "Random Ultra HD (2160p)", "tag": "ultra-hd-2160p"},
-  {"label": "Random Full HD (1080p)", "tag": "full-hd-1080p"},
-  {"label": "Random HD (720p)", "tag": "hd-720p"}
-]
-```
-
-### Custom links
-
-Manage Section 1 links from the admin editor (name, URL, colour, open-in-new-tab,
-reorder) plus an optional **links section title**. They are stored as a JSON
-array of `{label, url, color, external}` objects (shown here for reference):
-
-```json
-[
-  {"label": "Tracker", "url": "https://tracker.example.org/", "color": "#3498db", "external": true},
-  {"label": "Home page", "url": "https://example.org/", "color": "#e74c3c", "external": true}
-]
-```
+| **Rate limiting** | Per-IP points limiter on search/filters. When a visitor runs out of points the IP is temporarily blocked (configurable duration and post-block budget reset). Guests pay an extra per-action cost. |
 
 ## API endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/tryhackx/homepage/random` | Pick a random discussion from a tag. |
-| `GET` | `/api/tryhackx/homepage/stats` | Forum / tracker statistics. Optionally reCAPTCHA-gated. |
+| `GET` | `/api/tryhackx/homepage/stats` | Forum / tracker statistics (served from a shared server-side cache). |
 | `GET` | `/api/tryhackx/homepage/points/check` | User points / rating helper used by the filter bar. |
 
 ## Links

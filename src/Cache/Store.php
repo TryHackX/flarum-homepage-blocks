@@ -53,7 +53,7 @@ interface Store
      *                 da się założyć (skrajna kontencja / brak praw do storage), zwróć
      *                 $fallback BEZ uruchamiania $fn — fail-closed, by nie obejść TOCTOU
      *                 limitera (audyt H2). Wołający MUSI sprawdzić zwrot (np.
-     *                 PointsManager::charge / refillToStart traktują fallback jako porażkę).
+     *                 PointsManager::charge traktuje fallback jako porażkę).
      * $wait = false → single-flight: gdy ktoś już trzyma blokadę, NIE czekaj i zwróć
      *                 $fallback bez uruchamiania $fn.
      *

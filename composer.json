@@ -1,13 +1,12 @@
 {
     "name": "tryhackx/flarum-homepage-blocks",
-    "description": "Customizable homepage blocks for tracker-style Flarum forums featuring random discussion buttons, dual statistics (internal & OpenTracker), advanced filters, and rate-limiting protection.",
+    "description": "Customizable homepage blocks for tracker-style Flarum forums featuring dual statistics (internal & OpenTracker), advanced filters, and rate-limiting protection.",
     "keywords": [
         "flarum",
         "extension",
         "tracker",
         "statistics",
         "opentracker",
-        "recaptcha",
         "antispam",
         "rate-limiting",
         "validation",
@@ -18,8 +17,7 @@
         "sorting",
         "widgets",
         "homepage",
-        "blocks",
-        "random-discussion"
+        "blocks"
     ],
     "type": "flarum-extension",
     "license": "MIT",

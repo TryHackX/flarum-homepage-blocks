@@ -6,8 +6,8 @@ import app from 'flarum/forum/app';
  * (placeholdery, etykiety option, title/aria-label). Sklejamy części tekstowe,
  * pomijając węzły niebędące stringami.
  *
- * Wspólne dla TrackerStats / AdvancedFilters / CaptchaModal (audyt #8 — wcześniej
- * identyczna metoda była skopiowana do każdego z tych komponentów).
+ * Wspólne dla TrackerStats / AdvancedFilters (audyt #8 — wcześniej identyczna
+ * metoda była skopiowana do każdego z tych komponentów).
  */
 export function transStr(key) {
     const result = app.translator.trans(key);

@@ -8,7 +8,6 @@ use Flarum\Discussion\Search\DiscussionSearcher;
 use Flarum\Search\Database\DatabaseSearchDriver;
 use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Api\Controller\CheckPointsController;
-use TryHackX\HomepageBlocks\Api\Controller\RandomDiscussionController;
 use TryHackX\HomepageBlocks\Api\Controller\TrackerStatsController;
 use TryHackX\HomepageBlocks\Search\RatingFilter;
 use TryHackX\HomepageBlocks\Search\DateIntervalFilter;
@@ -40,12 +39,11 @@ return [
     // lockowalny cache (Redis…). Patrz StoreProvider (audyt #2/#3).
     (new Extend\ServiceProvider())->register(StoreProvider::class),
 
-    // /random i /points/check MUTUJĄ stan (dekrementują kubełek punktów per-IP),
-    // więc są POST — GET ma być bezpieczny/idempotentny (RFC 9110), a prefetchery
-    // linków / cache / probery CDN mogłyby po cichu drenować budżet użytkownika
-    // (audyt H2). /stats to czysty odczyt (cache statystyk) → zostaje GET.
+    // /points/check MUTUJE stan (dekrementuje kubełek punktów per-IP), więc jest
+    // POST — GET ma być bezpieczny/idempotentny (RFC 9110), a prefetchery linków /
+    // cache / probery CDN mogłyby po cichu drenować budżet użytkownika (audyt H2).
+    // /stats to czysty odczyt (cache statystyk) → zostaje GET.
     (new Extend\Routes('api'))
-        ->post('/tryhackx/homepage/random', 'tryhackx.homepage.random', RandomDiscussionController::class)
         ->get('/tryhackx/homepage/stats', 'tryhackx.homepage.stats', TrackerStatsController::class)
         ->post('/tryhackx/homepage/points/check', 'tryhackx.homepage.points.check', CheckPointsController::class),
 
@@ -61,7 +59,6 @@ return [
         ->serializeToForum('tryhackx-homepage-blocks.section1_collapsed', 'tryhackx-homepage-blocks.section1_collapsed', function ($value) {
             return (bool) $value;
         })
-        ->serializeToForum('tryhackx-homepage-blocks.random_buttons', 'tryhackx-homepage-blocks.random_buttons')
         ->serializeToForum('tryhackx-homepage-blocks.tracker_message', 'tryhackx-homepage-blocks.tracker_message')
         ->serializeToForum('tryhackx-homepage-blocks.tracker_sub_message', 'tryhackx-homepage-blocks.tracker_sub_message')
         ->serializeToForum('tryhackx-homepage-blocks.tracker_urls', 'tryhackx-homepage-blocks.tracker_urls')
@@ -72,39 +69,17 @@ return [
         ->serializeToForum('tryhackx-homepage-blocks.external_stats_enabled', 'tryhackx-homepage-blocks.external_stats_enabled', function ($value) {
             return (bool) $value;
         })
-        // UWAGA: NIE serializujemy external_stats_url / external_stats_native_url do
-        // forum — to wewnętrzne URL-e proxy/trackera (mogą zdradzać prywatny IP:port).
-        // Czyta je wyłącznie kontroler po stronie serwera; frontend woła endpoint
-        // ?source=external i nigdy nie potrzebuje samego URL-a (audyt: privacy).
-        ->serializeToForum('tryhackx-homepage-blocks.custom_links', 'tryhackx-homepage-blocks.custom_links')
-        ->serializeToForum('tryhackx-homepage-blocks.custom_links_title', 'tryhackx-homepage-blocks.custom_links_title')
-        ->serializeToForum('tryhackx-homepage-blocks.custom_links_css', 'tryhackx-homepage-blocks.custom_links_css')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_enabled', 'tryhackx-homepage-blocks.recaptcha_enabled', function ($value) {
-            return (bool) $value;
-        })
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_site_key', 'tryhackx-homepage-blocks.recaptcha_site_key')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_version', 'tryhackx-homepage-blocks.recaptcha_version')
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_on_random', 'tryhackx-homepage-blocks.recaptcha_on_random', function ($value) {
-            // Default ON when unset; explicitly false only when saved as false
-            return $value === null ? true : (bool) $value;
-        })
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_on_stats', 'tryhackx-homepage-blocks.recaptcha_on_stats', function ($value) {
-            return $value === null ? true : (bool) $value;
-        })
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_on_external_stats', 'tryhackx-homepage-blocks.recaptcha_on_external_stats', function ($value) {
-            return $value === null ? true : (bool) $value;
-        })
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_skip_authenticated', 'tryhackx-homepage-blocks.recaptcha_skip_authenticated', function ($value) {
-            return $value === null ? true : (bool) $value;
-        })
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_on_search', 'tryhackx-homepage-blocks.recaptcha_on_search', function ($value) {
-            return $value === null ? true : (bool) $value;
-        })
+        // UWAGA: NIE serializujemy external_stats_native_url do forum — to wewnętrzny
+        // URL trackera (może zdradzać prywatny IP:port). Czyta go wyłącznie kontroler
+        // po stronie serwera; frontend woła endpoint ?source=external i nigdy nie
+        // potrzebuje samego URL-a (audyt: privacy).
+        // Frontend potrzebuje tylko opóźnienia debounce wyszukiwania (poza samą
+        // flagą włączenia limitera niżej).
         ->serializeToForum('tryhackx-homepage-blocks.search_debounce_ms', 'tryhackx-homepage-blocks.search_debounce_ms')
         // Tylko sam fakt włączenia limitera trafia do frontendu (decyduje, czy robić
         // pre-flight). Ekonomia punktów (start/refill/koszty/blokada) jest WYŁĄCZNIE
         // serwerowa — nie ujawniamy jej klientom (audyt A4).
-        ->serializeToForum('tryhackx-homepage-blocks.recaptcha_points_enabled', 'tryhackx-homepage-blocks.recaptcha_points_enabled', function ($value) {
+        ->serializeToForum('tryhackx-homepage-blocks.ratelimit_enabled', 'tryhackx-homepage-blocks.ratelimit_enabled', function ($value) {
             return (bool) $value;
         })
         ->serializeToForum('tryhackx-homepage-blocks.hide_hero', 'tryhackx-homepage-blocks.hide_hero', function ($value) {
@@ -117,6 +92,10 @@ return [
             return (bool) $value;
         })
         ->serializeToForum('tryhackx-homepage-blocks.external_stats_refresh', 'tryhackx-homepage-blocks.external_stats_refresh')
+        // Tylko max_time trafia do frontendu — steruje, jak długo UI trzyma spinner
+        // „ładowanie", zanim uzna tracker za niedostępny. Cache-TTL i URL-e zostają
+        // serwerowe (URL-e mogą zdradzać prywatny IP:port).
+        ->serializeToForum('tryhackx-homepage-blocks.external_stats_max_time', 'tryhackx-homepage-blocks.external_stats_max_time')
         ->serializeToForum('tryhackx-homepage-blocks.theme_mode', 'tryhackx-homepage-blocks.theme_mode')
         ->serializeToForum('tryhackx-homepage-blocks.category_label', 'tryhackx-homepage-blocks.category_label')
         ->serializeToForum('tryhackx-homepage-blocks.resolution_label', 'tryhackx-homepage-blocks.resolution_label'),
