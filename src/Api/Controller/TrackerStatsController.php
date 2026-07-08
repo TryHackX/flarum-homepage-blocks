@@ -285,10 +285,18 @@ class TrackerStatsController implements RequestHandlerInterface
             return null;
         }
 
+        // OpenTracker liczy „peers" jako WSZYSTKICH klientów w roju (seedery + leechery),
+        // a „seeds" to sami seederzy. Leecherów wyprowadzamy więc jako peers − seeds
+        // (clamp do 0 na wypadek chwilowej niespójności migawki), tak samo jak robi to
+        // tracker.tryhackx.org. Dzięki temu frontend dostaje gotową wartość.
+        $seeds = (int) ($xml->seeds->count ?? 0);
+        $peers = (int) ($xml->peers->count ?? 0);
+
         return [
             'torrents' => (string) ($xml->torrents->count_mutex ?? 0),
-            'seeds' => (string) ($xml->seeds->count ?? 0),
-            'peers' => (string) ($xml->peers->count ?? 0),
+            'seeds' => (string) $seeds,
+            'leechers' => (string) max(0, $peers - $seeds),
+            'peers' => (string) $peers,
             'completed' => (string) ($xml->completed->count ?? 0),
             'uptime' => (int) ($xml->uptime ?? 0),
         ];

@@ -3,7 +3,7 @@
 use Illuminate\Database\Schema\Builder;
 
 /*
- * Sprzątanie po wycięciu funkcji "random" i "Custom Links" (v3.0.0).
+ * Sprzątanie po wycięciu funkcji "random" i "Custom Links" (v2.4.0).
  *
  * Ustawienia tych funkcji żyją w rdzeniowej tabeli klucz-wartość `settings`,
  * więc samo usunięcie kodu ich nie kasuje — zostają jako osierocone wiersze.

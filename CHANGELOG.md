@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.0.0] - 2026-07-07
+## [2.5.0] - 2026-07-08
+
+> Small feature + documentation release. **Frontend + PHP, no migrations** — rebuild the
+> assets and clear the cache: `composer update` + `php flarum cache:clear`.
+
+### Added
+- **Leechers stat in the OpenTracker block.** The external-stats row now shows **Leechers**
+  between Seeds and Peers, matching `tracker.tryhackx.org`. The value is derived server-side as
+  `peers − seeds` (OpenTracker reports `peers` as the whole swarm) and returned on the
+  `?source=external` stats endpoint; the frontend falls back to the same `peers − seeds`
+  computation if it is ever served an older cache entry without the field.
+
+### Changed
+- **Tracker-stats grid fits the extra tile.** Stat values now stay on a single line
+  (`white-space: nowrap`) and the whole tile wraps instead of a number breaking mid-string,
+  so even a wide `Uptime` (e.g. `400d 23h`) never pushes the row into horizontal overflow.
+  Slightly tighter grid gap and min tile width to accommodate the sixth external stat.
+
+### Documentation
+- **README now spells out the search rate limiter's scope** — it is a client-side pre-flight
+  UX throttle on the on-page filter bar, **not** a hard anti-scraping wall: a client that calls
+  core's `GET /api/discussions` directly (curl/bot/scraper) skips the pre-flight and is not
+  metered, so determined scraping belongs behind an edge/WAF rate limit. (Addresses the one
+  actionable item from the floxum 2.4.1 audit; the FileStore-vs-Laravel-FS, raw-cURL-vs-HTTP-client,
+  god-class-refactor and `resolve()` findings were re-confirmed as deliberate design decisions
+  — native `flock`/`rename` atomicity, `illuminate/http` not being installed, and cheap
+  singleton lookups — and left as-is.)
+
+## [2.4.1] - 2026-07-07
+
+### Changed
+- **Repo hygiene:** stopped tracking the committed `.gitignore` so it is no longer shipped in
+  the Composer/Packagist package (ignore rules stay local-only). No code or behavior change.
+
+## [2.4.0] - 2026-07-07
 
 > Removal of the **random topic buttons** feature and the **custom links** section.
 > Randomization was moved out of the extension (standalone PHP pages in
@@ -17,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > fetch-time limit. reCAPTCHA was **removed entirely** — protection is now a per-IP points
 > rate limiter with temporary IP blocking. **PHP + frontend + cleanup migrations** — update
 > with: `composer update` + `php flarum migrate` + `php flarum cache:clear`.
-> Breaking change (removed public API endpoint and settings) → major bump.
+> Breaking change (removed a public API endpoint and settings) — review the migration notes
+> below before updating.
 
 ### Removed
 - **Random topic buttons (`RandomMovieButtons`)** — the frontend component and its

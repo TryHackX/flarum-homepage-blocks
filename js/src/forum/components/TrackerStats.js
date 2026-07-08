@@ -134,7 +134,8 @@ export default class TrackerStats extends Component {
         return m('div', { className: 'TrackerStats-grid TrackerStats-external' }, [
             this.renderStat('fas fa-database', s.torrents, 'tryhackx-homepage-blocks.forum.stats_torrents'),
             this.renderStat('fas fa-arrow-up', s.seeds, 'tryhackx-homepage-blocks.forum.stats_seeds'),
-            this.renderStat('fas fa-arrow-down', s.peers, 'tryhackx-homepage-blocks.forum.stats_peers'),
+            this.renderStat('fas fa-arrow-down', s.leechers, 'tryhackx-homepage-blocks.forum.stats_leechers'),
+            this.renderStat('fas fa-exchange-alt', s.peers, 'tryhackx-homepage-blocks.forum.stats_peers'),
             this.renderStat('fas fa-check-circle', s.completed, 'tryhackx-homepage-blocks.forum.stats_completed'),
             s.uptime !== undefined
                 ? this.renderStat('fas fa-clock', this.formatUptime(s.uptime), 'tryhackx-homepage-blocks.forum.stats_uptime')
@@ -204,12 +205,20 @@ export default class TrackerStats extends Component {
             const response = await this.performStatsRequest('?source=external');
 
             if (response && response.external) {
+                const ext = response.external;
+                // Leechers liczy backend (peers − seeds). Fallback wylicza to samo po
+                // stronie klienta, gdyby serwowano starszy wpis cache bez tego pola.
+                const leechers =
+                    ext.leechers != null
+                        ? ext.leechers
+                        : Math.max(0, Number(ext.peers || 0) - Number(ext.seeds || 0));
                 cache.externalStats = {
-                    torrents: response.external.torrents || 0,
-                    seeds: response.external.seeds || 0,
-                    peers: response.external.peers || 0,
-                    completed: response.external.completed || 0,
-                    uptime: response.external.uptime || 0,
+                    torrents: ext.torrents || 0,
+                    seeds: ext.seeds || 0,
+                    leechers: leechers,
+                    peers: ext.peers || 0,
+                    completed: ext.completed || 0,
+                    uptime: ext.uptime || 0,
                 };
                 cache.externalLoaded = true;
                 cache.externalPendingSince = null;

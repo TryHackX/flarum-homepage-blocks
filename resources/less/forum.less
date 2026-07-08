@@ -177,7 +177,7 @@
     &-grid {
         display: flex;
         justify-content: center;
-        gap: 30px;
+        gap: 24px;
         flex-wrap: wrap;
         padding: 10px 0;
     }
@@ -187,7 +187,11 @@
         flex-direction: column;
         align-items: center;
         gap: 4px;
-        min-width: 90px;
+        min-width: 84px;
+        // Zmieść dłuższe wartości (np. Uptime „365d 23h") bez rozpychania sąsiadów —
+        // element rośnie do treści, a cała siatka zawija się (flex-wrap) zamiast się
+        // wykrzaczać.
+        flex: 0 1 auto;
 
         i {
             font-size: 18px;
@@ -200,6 +204,9 @@
         font-size: 18px;
         font-weight: 700;
         color: @hb-stat-value;
+        // Wartość ma zostać w jednej linii (Uptime bywa szeroki) — zamiast łamać
+        // liczbę w połowie, to CAŁY kafelek zawinie się do kolejnego wiersza.
+        white-space: nowrap;
     }
 
     &-label {

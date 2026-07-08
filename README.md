@@ -52,9 +52,10 @@ You can also find the donation option in the extension's admin settings panel.
   database) and external OpenTracker stats side by side:
   - **Internal stats** — torrents, users, magnets, downloads, views,
     average rating (pulled from the forum database).
-  - **External stats (OpenTracker)** — seeds, peers, completed
+  - **External stats (OpenTracker)** — seeds, leechers, peers, completed
     downloads, uptime, fetched directly from the OpenTracker XML endpoint
-    (`/stats?mode=everything`).
+    (`/stats?mode=everything`). Leechers are derived as `peers − seeds`
+    (OpenTracker's `peers` count is the whole swarm).
   - **Shared cache + single-flight** — the backend fetches the tracker at
     most once per *cache lifetime*, globally, and serves everyone from one
     shared cache; when a fetch is already running, other requests are never
@@ -89,6 +90,19 @@ You can also find the donation option in the extension's admin settings panel.
   `X-Forwarded-For` header. The per-IP budget is kept on the local filesystem
   with per-IP locking — ideal for a single server; if you run several app
   servers behind a load balancer, front them with a shared store (Redis).
+  - ⚠ **Scope — this is a UX throttle, not a hard anti-scraping wall.**
+    The budget is charged by a client-side pre-flight the filter bar sends
+    before each query; the search itself runs through Flarum core's
+    `GET /api/discussions`, which this extension does **not** gate
+    server-side. A client that talks to `/api/discussions` directly (curl,
+    a bot, a scraper) skips the pre-flight and is **not** throttled by this
+    limiter. It exists to keep casual over-use of the on-page filters in
+    check and to show humans a friendly cool-down — treat determined
+    scraping as a separate concern (a WAF / reverse-proxy rate limit in
+    front of the API). A server-side charge on every `/api/discussions`
+    call was deliberately not added: it would either double-charge
+    (pre-flight + middleware) or require a shared query-token handshake, for
+    little gain over an edge rate limit.
 - **Collapsible sections** — Section 1 (tracker + stats) can be
   collapsed by default to save space.
 - **Hide hero banner** — optional toggle to hide Flarum's default hero
