@@ -1,7 +1,7 @@
 {
     "private": true,
     "name": "@tryhackx/flarum-homepage-blocks",
-    "version": "2.5.0",
+    "version": "2.5.1",
     "scripts": {
         "dev": "webpack --mode development --watch",
         "build": "webpack --mode production"

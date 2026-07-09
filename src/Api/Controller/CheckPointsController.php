@@ -14,12 +14,12 @@ use TryHackX\HomepageBlocks\Security\RateLimiter;
  * Używany przez frontend przed natywnym wyszukiwaniem / odświeżeniem listy
  * dyskusji (których rozszerzenie nie bramkuje po stronie PHP).
  *
- * ⚠ MIĘKKA BRAMKA (świadoma decyzja audytu C1): to wyłącznie pre-flight po stronie
- * KLIENTA. Samo wyszukiwanie idzie potem w rdzeniowy /api/discussions, który NIE jest
- * bramkowany serwerowo — klient pomijający pre-flight (curl, bot, devtools) wykona je
- * bez naliczenia/limitu. Zaakceptowane: filtry title/user (LIKE) są ograniczone, a
- * twarda bramka wymagałaby dedykowanego middleware na /api/discussions z POJEDYNCZYM
- * punktem naliczania (inaczej pre-flight + middleware naliczyłyby podwójnie).
+ * Rola: to WARSTWA UX (szybka informacja dla przeglądarki + odliczanie blokady zanim
+ * poleci realne zapytanie). Twardą, serwerową bramkę stanowi teraz {@see \TryHackX\
+ * HomepageBlocks\Api\Middleware\SearchRateLimitMiddleware} na rdzeniowym /api/discussions
+ * (łapie także boty/curl pomijające ten pre-flight). Żeby NIE naliczyć podwójnie, po
+ * udanym naliczeniu przyznajemy „grace" ({@see RateLimiter::grantGrace()}) — middleware
+ * skonsumuje go zamiast naliczać ponownie realne żądanie tego samego wyszukiwania.
  *
  * Query: ?action=search
  *
@@ -47,6 +47,11 @@ class CheckPointsController implements RequestHandlerInterface
         if ($error = $this->guardError($result)) {
             return $error;
         }
+
+        // Naliczono w pre-flighcie → przyznaj grace, by SearchRateLimitMiddleware
+        // przepuścił następujące po nim realne żądanie /api/discussions bez podwójnego
+        // naliczenia (patrz docblock klasy).
+        $this->limiter->grantGrace($request);
 
         return new JsonResponse([
             'ok' => true,

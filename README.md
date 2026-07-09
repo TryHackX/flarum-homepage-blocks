@@ -90,19 +90,19 @@ You can also find the donation option in the extension's admin settings panel.
   `X-Forwarded-For` header. The per-IP budget is kept on the local filesystem
   with per-IP locking — ideal for a single server; if you run several app
   servers behind a load balancer, front them with a shared store (Redis).
-  - ⚠ **Scope — this is a UX throttle, not a hard anti-scraping wall.**
-    The budget is charged by a client-side pre-flight the filter bar sends
-    before each query; the search itself runs through Flarum core's
-    `GET /api/discussions`, which this extension does **not** gate
-    server-side. A client that talks to `/api/discussions` directly (curl,
-    a bot, a scraper) skips the pre-flight and is **not** throttled by this
-    limiter. It exists to keep casual over-use of the on-page filters in
-    check and to show humans a friendly cool-down — treat determined
-    scraping as a separate concern (a WAF / reverse-proxy rate limit in
-    front of the API). A server-side charge on every `/api/discussions`
-    call was deliberately not added: it would either double-charge
-    (pre-flight + middleware) or require a shared query-token handshake, for
-    little gain over an edge rate limit.
+  - **Enforced server-side.** The authoritative charge is a middleware on
+    core's `GET /api/discussions` that meters requests carrying the heavy
+    `filter[title]` / `filter[user]` (LIKE `%…%`) parameters — so bots,
+    scrapers and flooders hitting the API **directly** are throttled and
+    blocked *before* the query touches the database, not just users of the
+    on-page filter bar. The client-side pre-flight is kept purely for UX
+    (instant countdown before a query fires); to avoid double-billing, a
+    successful pre-flight grants a short-lived per-IP *grace* that the
+    middleware consumes for the follow-up real request. Only heavy
+    title/user searches are metered — ordinary browsing and short (<3-char)
+    filters are never charged. (A shared cache such as Redis is still
+    recommended if you run several app servers, so the per-IP bucket is
+    consistent across nodes.)
 - **Collapsible sections** — Section 1 (tracker + stats) can be
   collapsed by default to save space.
 - **Hide hero banner** — optional toggle to hide Flarum's default hero

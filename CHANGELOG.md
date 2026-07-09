@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-07-09
+
+> Turns the search rate limiter into a **real server-side guard**. **PHP + frontend, no
+> migrations** — `composer update` + `php flarum cache:clear`.
+
+### Added
+- **Server-side search rate-limit middleware** (`SearchRateLimitMiddleware`, on the core
+  `api` route group). It meters `GET /api/discussions` requests that carry the heavy
+  `filter[title]` / `filter[user]` (LIKE `%…%`) parameters (≥3 chars) and returns
+  **429 + `Retry-After`** once the per-IP points bucket is exhausted — *before* the query
+  reaches the database. This closes the previous soft-gate gap: bots, scrapers and flooders
+  hitting `/api/discussions` **directly** (skipping the client pre-flight) are now throttled
+  and temporarily blocked, protecting the DB from heavy-query floods. Ordinary browsing and
+  short (<3-char) filters are never metered.
+- **Single-charge "grace" bridge** (`PointsManager::grantGrace()` / `consumeGrace()`). A
+  successful pre-flight (`POST /points/check`) grants a short-lived (15 s), per-IP,
+  capped grace token; the middleware consumes it for the immediately-following real request
+  instead of charging again — so legitimate on-page searches are billed **once**, not twice.
+
+### Changed
+- **The `/points/check` pre-flight is now the UX layer, not the security boundary.** It still
+  gives the instant block countdown, but the authoritative charge/block happens in the
+  middleware (`RateLimiter::verifyRequest()`). Frontend request flow is unchanged.
+- Reworded the stale "soft gate / audit C1" notes in `CheckPointsController`, `AdvancedFilters.js`
+  and the README to describe the enforced server-side guard.
+
 ## [2.5.0] - 2026-07-08
 
 > Small feature + documentation release. **Frontend + PHP, no migrations** — rebuild the

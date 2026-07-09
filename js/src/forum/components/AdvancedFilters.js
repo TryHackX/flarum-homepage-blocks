@@ -310,11 +310,11 @@ export default class AdvancedFilters extends Component {
      * performed against the server; when the points bucket is exhausted the IP is
      * temporarily blocked and a countdown notice is shown instead of running the query.
      *
-     * NOTE (audit C1): this pre-flight is a SOFT, client-side gate. The actual
-     * query hits core /api/discussions, which is NOT rate-limited server-side, so
-     * a client skipping the pre-flight (curl/bot/devtools) can search unthrottled.
-     * Accepted trade-off; a hard guard would need a scoped middleware on
-     * /api/discussions with a single points-charge point (see CheckPointsController).
+     * The pre-flight is the UX layer (instant countdown before the query fires). The
+     * authoritative server-side guard is SearchRateLimitMiddleware on core
+     * /api/discussions, which also throttles clients that skip this pre-flight
+     * (curl/bot/scraper). To avoid double-charging, a successful pre-flight grants a
+     * short-lived "grace" the middleware consumes for the follow-up real request.
      */
     async applyFilters() {
         app.homepageFilters = this.filters;

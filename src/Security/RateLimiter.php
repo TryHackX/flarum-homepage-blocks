@@ -54,6 +54,46 @@ class RateLimiter
     }
 
     /**
+     * Autorytatywna, SERWEROWA weryfikacja faktycznego żądania wyszukiwania
+     * (GET /api/discussions z filtrem title/user) — wołana z {@see \TryHackX\
+     * HomepageBlocks\Api\Middleware\SearchRateLimitMiddleware}.
+     *
+     * Jeśli IP ma świeży „grace" z pre-flightu (UI już naliczyło za tę akcję —
+     * {@see CheckPointsController}), konsumujemy go i przepuszczamy BEZ podwójnego
+     * naliczenia. W przeciwnym razie (bot/curl/scraper pomijający pre-flight)
+     * naliczamy TU — to twarda bramka backendu chroniąca bazę przed zalewem
+     * ciężkich zapytań LIKE. Zwraca tę samą strukturę co {@see verify()}.
+     */
+    public function verifyRequest(ServerRequestInterface $request): array
+    {
+        if (!$this->points->isEnabled()) {
+            return ['ok' => true];
+        }
+
+        $ip = $this->points->getIp($request);
+
+        // Pre-flight już naliczył za tę akcję → nie licz drugi raz.
+        if ($this->points->consumeGrace($ip)) {
+            return ['ok' => true];
+        }
+
+        return $this->verify($request, 'search');
+    }
+
+    /**
+     * Po udanym pre-flighcie: przyznaj krótkotrwały grace, by następujące po nim
+     * realne żądanie wyszukiwania nie zostało naliczone przez middleware drugi raz.
+     */
+    public function grantGrace(ServerRequestInterface $request): void
+    {
+        if (!$this->points->isEnabled()) {
+            return;
+        }
+
+        $this->points->grantGrace($this->points->getIp($request));
+    }
+
+    /**
      * Logika punktowa z egzekwowaniem = tymczasowa blokada IP.
      */
     protected function verifyPoints(ServerRequestInterface $request, string $scope, bool $isGuest): array

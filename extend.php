@@ -9,6 +9,7 @@ use Flarum\Search\Database\DatabaseSearchDriver;
 use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Api\Controller\CheckPointsController;
 use TryHackX\HomepageBlocks\Api\Controller\TrackerStatsController;
+use TryHackX\HomepageBlocks\Api\Middleware\SearchRateLimitMiddleware;
 use TryHackX\HomepageBlocks\Search\RatingFilter;
 use TryHackX\HomepageBlocks\Search\DateIntervalFilter;
 use TryHackX\HomepageBlocks\Search\TitleFilter;
@@ -46,6 +47,14 @@ return [
     (new Extend\Routes('api'))
         ->get('/tryhackx/homepage/stats', 'tryhackx.homepage.stats', TrackerStatsController::class)
         ->post('/tryhackx/homepage/points/check', 'tryhackx.homepage.points.check', CheckPointsController::class),
+
+    // Twarda bramka serwerowa limitera na rdzeniowym GET /api/discussions z ciężkim
+    // filtrem title/user (LIKE). Pre-flight /points/check to tylko UX — to middleware
+    // realnie chroni bazę przed botami/scraperami/floderami (patrz jego docblock).
+    // Extend\Middleware('api')->add() wstawia je PO ResolveRoute/PopulateWithActor,
+    // więc widzi routeName, aktora i ipAddress.
+    (new Extend\Middleware('api'))
+        ->add(SearchRateLimitMiddleware::class),
 
     (new Extend\Settings())
         ->serializeToForum('tryhackx-homepage-blocks.section1_enabled', 'tryhackx-homepage-blocks.section1_enabled', function ($value) {

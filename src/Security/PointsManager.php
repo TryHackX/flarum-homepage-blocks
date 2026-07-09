@@ -184,6 +184,67 @@ class PointsManager
         }, true, ['ok' => false, 'balance' => 0.0]); // fail-closed: brak locka → DENY (audyt H2)
     }
 
+    // ────────────── „Grace" — most między pre-flightem a middleware ──────────────
+    // Pre-flight (CheckPointsController) nalicza za 'search' i PRZYZNAJE grace. Realne,
+    // następujące po nim żądanie (to samo wyszukiwanie idące w rdzeniowe /api/discussions)
+    // jest bramkowane przez SearchRateLimitMiddleware, który KONSUMUJE grace zamiast
+    // naliczać drugi raz — dzięki temu legalny ruch z UI płaci JEDEN raz, a bot/curl/
+    // scraper pomijający pre-flight nie ma grace i zostaje naliczony/zablokowany w
+    // middleware (twarda bramka backendu). Griefing na współdzielonym IP (bot podkrada
+    // grace zminowany przez realnego usera za tym samym NAT) jest ograniczony do
+    // GRACE_MAX i nie daje darmowego ruchu bez aktywnego legalnego usera — akceptowalne.
+
+    /** Górny limit akumulacji grace (ile żądań „na kredyt" po serii pre-flightów). */
+    protected const GRACE_MAX = 5;
+
+    /** Okno grace (s): z zapasem pokrywa lukę pre-flight → realne żądanie (debounce+sieć). */
+    protected function graceTtl(): int
+    {
+        return 15;
+    }
+
+    protected function graceKey(string $ip): string
+    {
+        return 'search:grace:' . sha1($ip);
+    }
+
+    /**
+     * Przyznaj jednostkę grace dla IP (po udanym naliczeniu w pre-flighcie).
+     * Akumuluje z górnym limitem {@see GRACE_MAX}; stare wpisy wygasają po graceTtl().
+     */
+    public function grantGrace(string $ip): void
+    {
+        $this->store->withLock($this->graceKey($ip), function () use ($ip) {
+            $read = $this->store->read($this->graceKey($ip));
+            $count = ($read !== null && $read['age'] <= $this->graceTtl())
+                ? (int) ($read['value']['count'] ?? 0)
+                : 0;
+            $count = min(self::GRACE_MAX, $count + 1);
+            $this->store->write($this->graceKey($ip), ['count' => $count], $this->graceTtl());
+        }, true, null);
+    }
+
+    /**
+     * Skonsumuj jednostkę grace IP. Zwraca true, gdy była dostępna (→ NIE naliczaj
+     * w middleware). Fail-closed: brak locka → false → middleware naliczy (bezpieczniej
+     * podwójnie policzyć niż przepuścić bez opłaty).
+     */
+    public function consumeGrace(string $ip): bool
+    {
+        return $this->store->withLock($this->graceKey($ip), function () use ($ip) {
+            $read = $this->store->read($this->graceKey($ip));
+            if ($read === null || $read['age'] > $this->graceTtl()) {
+                return false;
+            }
+            $count = (int) ($read['value']['count'] ?? 0);
+            if ($count <= 0) {
+                return false;
+            }
+            $this->store->write($this->graceKey($ip), ['count' => $count - 1], $this->graceTtl());
+            return true;
+        }, true, false);
+    }
+
     // ────────────── Magazyn (delegowany do Store) ──────────────
 
     /**
