@@ -184,7 +184,7 @@ export default function registerWhitelistSettings() {
                     ]),
 
                     // Only sync magnets that point at our tracker (+ the host list, inert until the checkbox is on)
-                    m('div', { className: 'HomepageBlocks-whitelistRow' }, [
+                    m('div', { className: 'HomepageBlocks-whitelistStack' }, [
                         m('div', { className: 'HomepageBlocks-whitelistField' }, [
                             m('label', { className: 'checkbox' }, [
                                 m('input', { type: 'checkbox', className: 'HomepageBlocks-whitelistRequireTracker', disabled: dis, tabindex: dis ? -1 : 0, checked: requireTracker, onchange: (e) => this.setting(S + '.whitelist_require_tracker')(e.target.checked ? '1' : '0') }),
