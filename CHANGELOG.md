@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-08-18
+
+### Fixed
+- Tracker client: TCP connect may take up to 5 s (was capped at 2 s) — on a busy host the 2 s cap
+  tripped the transport cooldown and the forum scan answered 503 ("failure cooldown"). Recommended
+  `whitelist_timeout_seconds` on such hosts: 8.
+
 ## [2.6.1] - 2026-08-18
 
 > Tracker whitelist sync: opt-in filter. **PHP + frontend + locales, no migrations.**
