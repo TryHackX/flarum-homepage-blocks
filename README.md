@@ -174,6 +174,7 @@ php flarum cache:clear
 | **Content Settings** | Override title and content length limits. |
 | **Rate limiting** | Per-IP points limiter on search/filters. When a visitor runs out of points the IP is temporarily blocked (configurable duration and post-block budget reset). Guests pay an extra per-action cost. |
 | **Tracker whitelist sync** | Enable toggle (reveals the settings), tracker URL, API key ID, API secret (own *Save secret* button — stored server-side only), live-sync timeout, optional bare-hash detection, **Test connection** and **Scan whole forum** with a progress bar (batched, resumable). |
+| ↳ **Only sync magnets that point at our tracker** (2.6.1) | Off by default. When on, a hash is sent only if its magnet link has a `tr=` announce URL on one of the **Tracker hosts** (comma / newline separated hostnames or IPs, e.g. `tryhackx.org, 135.125.236.64`; `host:port` / full URLs accepted, case-insensitive). Hashes without a magnet (bare `btih:` / bare 40-hex) are skipped; the scan reports them as *skipped*. An empty host list sends nothing and is reported on the last-error line. |
 
 ## API endpoints
 
@@ -182,7 +183,7 @@ php flarum cache:clear
 | `GET` | `/api/tryhackx/homepage/stats` | Forum / tracker statistics (served from a shared server-side cache). |
 | `GET` | `/api/tryhackx/homepage/points/check` | User points / rating helper used by the filter bar. |
 | `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew. |
-| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, added, exists, banned, …}`); on a tracker error the cursor is not advanced. |
+| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, …}`); on a tracker error the cursor is not advanced. |
 | `POST` | `/api/tryhackx/homepage/whitelist/secret` | Admin only — stores / clears the tracker API secret (accepts a full `key_id.secret` token). |
 
 ## Links

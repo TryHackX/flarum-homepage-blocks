@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-08-18
+
+> Tracker whitelist sync: opt-in filter. **PHP + frontend + locales, no migrations.**
+
+### Added
+- **Only sync magnets that point at our tracker** (`whitelist_require_tracker`, off by default) with
+  a **Tracker hosts** list (`whitelist_tracker_hosts`, comma / newline separated hostnames or IPs;
+  `host:port` and full URLs are accepted, matching is case-insensitive). When on, a hash is sent to
+  the tracker only if it came from a magnet URI whose `tr=` parameters include one of the configured
+  hosts — hashes **without a magnet** (bare `btih:` fragments, bare 40-hex) have no tracker and are
+  skipped. The filter is applied in one place for both the live listener and the forum scan, so
+  `hashes_found` counts only eligible hashes; the scan batch response gains `skipped_no_tracker`,
+  shown in the progress line. On with an empty host list nothing is sent and the admin last-error
+  line reports the missing hosts (Test connection is unaffected).
+
 ## [2.6.0] - 2026-08-18
 
 > Adds the **Tracker whitelist sync** module. **PHP + frontend + locales, no migrations** —

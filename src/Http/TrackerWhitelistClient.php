@@ -5,6 +5,7 @@ namespace TryHackX\HomepageBlocks\Http;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Psr\Log\LoggerInterface;
 use TryHackX\HomepageBlocks\Cache\Store;
+use TryHackX\HomepageBlocks\Service\MagnetExtractor;
 
 /**
  * HTTP client for the tracker's server-to-server whitelist API (tryhackx-tracker ≥ 1.2.0):
@@ -34,6 +35,9 @@ final class TrackerWhitelistClient
 
     /** Base URL that already passed the DNS / reserved-range check in this process (scan batches reuse it). */
     private ?string $resolvedBase = null;
+
+    /** noteEmptyTrackerHosts() already written in this request (the client is a per-request singleton). */
+    private bool $notedEmptyHosts = false;
 
     public function __construct(
         private SettingsRepositoryInterface $settings,
@@ -67,6 +71,31 @@ final class TrackerWhitelistClient
     {
         $v = $this->settings->get(self::S . '.whitelist_detect_bare_hashes');
         return $v === true || $v === '1' || $v === 1 || $v === 'true';
+    }
+
+    /** "Only sync magnets that point at our tracker" (default off). */
+    public function requireTracker(): bool
+    {
+        $v = $this->settings->get(self::S . '.whitelist_require_tracker');
+        return $v === true || $v === '1' || $v === 1 || $v === 'true';
+    }
+
+    /** Configured tracker hosts for requireTracker() — lowercase hostnames / IPs (empty when unset). @return string[] */
+    public function trackerHosts(): array
+    {
+        return MagnetExtractor::parseHostList((string) $this->settings->get(self::S . '.whitelist_tracker_hosts'));
+    }
+
+    /**
+     * requireTracker() is on but trackerHosts() is empty → nothing can ever match. Surfaces the
+     * misconfiguration through the admin last-error line (once per request; the store write is cheap
+     * but there is no point repeating it for every post of a scan batch).
+     */
+    public function noteEmptyTrackerHosts(): void
+    {
+        if ($this->notedEmptyHosts) return;
+        $this->notedEmptyHosts = true;
+        $this->noteError('Nothing sent: "Only sync magnets that point at our tracker" is on but the tracker host list is empty — add your tracker hostname(s) / IP(s) in the whitelist settings, or turn the option off.');
     }
 
     /** Syntactically valid base URL (scheme http/https, non-empty host) or null. No DNS here. */

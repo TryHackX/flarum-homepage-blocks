@@ -24,6 +24,9 @@ final class WhitelistScanner
     public const WALL_BUDGET_SEC = 20.0;     // hard per-request budget (php-fpm 30 s ceiling)
     public const SCAN_BUDGET_SEC = 8.0;      // extraction share of the budget; the rest is the tracker call
 
+    /** Memoised configured tracker hosts (see eligible()); the scanner is a per-request singleton. @var ?string[] */
+    private ?array $trackerHosts = null;
+
     public function __construct(
         private TrackerWhitelistClient $client,
         private UrlGenerator $url,
@@ -55,7 +58,7 @@ final class WhitelistScanner
     }
 
     /**
-     * @return array{ok:bool,next_cursor:int,done:bool,processed:int,hashes_found:int,sent:int,added:int,exists:int,banned:int,invalid:int,error:?string,elapsed_ms:int,last_post_id:int}
+     * @return array{ok:bool,next_cursor:int,done:bool,processed:int,hashes_found:int,skipped_no_tracker:int,sent:int,added:int,exists:int,banned:int,invalid:int,error:?string,elapsed_ms:int,last_post_id:int}
      */
     public function scanBatch(int $cursor, int $batch = self::BATCH_POSTS, bool $dryRun = false): array
     {
@@ -65,6 +68,7 @@ final class WhitelistScanner
         $processed = 0;
         $lastId = $cursor;
         $items = [];      // hash => item
+        $skipped = [];    // hash => true — found, but not eligible (no magnet pointing at our tracker)
         $stopped = false; // stopped early (budget / cap) → not done even if fewer rows
         $maxId = $this->maxPostId();
 
@@ -75,11 +79,15 @@ final class WhitelistScanner
                 break;
             }
             $xml = (string) ($post->getRawOriginal('content') ?? $post->getAttributes()['content'] ?? '');
-            $found = MagnetExtractor::extract($xml, $bare);
+            [$found, $notEligible] = $this->eligible(MagnetExtractor::extract($xml, $bare));
+            foreach ($notEligible as $hash => $_) {
+                if (!isset($items[$hash])) $skipped[$hash] = true;
+            }
             if ($found) {
                 $ref = $this->refFor($post);
                 foreach ($found as $hash => $meta) {
                     if (isset($items[$hash])) continue;
+                    unset($skipped[$hash]);
                     $items[$hash] = $this->buildItem($hash, $meta, $ref);
                     if (count($items) >= self::MAX_HASHES_PER_CALL) break;
                 }
@@ -90,6 +98,7 @@ final class WhitelistScanner
         $done = !$stopped && (count($rows) < $batch || $lastId >= $maxId);
 
         $out = ['ok' => true, 'next_cursor' => $lastId, 'done' => $done, 'processed' => $processed, 'hashes_found' => count($items),
+                'skipped_no_tracker' => count($skipped),
                 'sent' => 0, 'added' => 0, 'exists' => 0, 'banned' => 0, 'invalid' => 0, 'error' => null, 'elapsed_ms' => 0, 'last_post_id' => $lastId];
 
         if ($items && !$dryRun) {
@@ -118,12 +127,33 @@ final class WhitelistScanner
     {
         $xml = (string) ($post->getRawOriginal('content') ?? $post->getAttributes()['content'] ?? '');
         if ($xml === '') return null;
-        $found = MagnetExtractor::extract($xml, $this->client->detectBareHashes());
+        [$found] = $this->eligible(MagnetExtractor::extract($xml, $this->client->detectBareHashes()));
         if (!$found) return null;
         $ref = $this->refFor($post);
         $items = [];
         foreach ($found as $hash => $meta) $items[] = $this->buildItem($hash, $meta, $ref);
         return $this->client->submit($items, 'forum');
+    }
+
+    /**
+     * The ONE gate for "Only sync magnets that point at our tracker" — used by the live path
+     * (syncPost) and the forum scan (scanBatch), so counters only ever see eligible hashes.
+     * Off → everything passes. On → only entries whose magnet has a `tr=` on a configured host
+     * (bare btih: / bare hex never qualify). On with an empty host list → nothing passes and the
+     * misconfiguration is surfaced through the admin last-error line (once per request).
+     *
+     * @param  array<string, array{magnet: ?string, name: ?string}> $found
+     * @return array{0: array<string, array{magnet: ?string, name: ?string}>, 1: array<string, array{magnet: ?string, name: ?string}>} [eligible, skipped]
+     */
+    private function eligible(array $found): array
+    {
+        if (!$this->client->requireTracker()) return [$found, []];
+        $hosts = $this->trackerHosts ??= $this->client->trackerHosts();
+        if (!$hosts) {
+            $this->client->noteEmptyTrackerHosts();
+            return [[], $found];
+        }
+        return $found ? MagnetExtractor::filterByTrackerHosts($found, $hosts) : [[], []];
     }
 
     private function buildItem(string $hash, array $meta, array $ref): array

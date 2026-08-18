@@ -72,6 +72,91 @@ final class MagnetExtractor
         return $found;
     }
 
+    // ───────── "Only sync magnets that point at our tracker" ─────────
+
+    /**
+     * Keeps only the entries whose magnet URI announces to one of $hosts (see magnetPointsAt()).
+     * Entries without a magnet (bare btih: fragments / bare 40-hex) never match — the tracker
+     * cannot be inferred from a hash alone. Returns [kept entries, skipped entries] (same shape).
+     *
+     * @param  array<string, array{magnet: ?string, name: ?string}> $found  output of extract()
+     * @param  string[] $hosts  configured hosts, see parseHostList()
+     * @return array{0: array<string, array{magnet: ?string, name: ?string}>, 1: array<string, array{magnet: ?string, name: ?string}>}
+     */
+    public static function filterByTrackerHosts(array $found, array $hosts): array
+    {
+        $kept = [];
+        $skipped = [];
+        foreach ($found as $hash => $meta) {
+            $magnet = $meta['magnet'] ?? null;
+            if ($magnet !== null && $magnet !== '' && self::magnetPointsAt($magnet, $hosts)) {
+                $kept[$hash] = $meta;
+            } else {
+                $skipped[$hash] = $meta;
+            }
+        }
+        return [$kept, $skipped];
+    }
+
+    /** True when at least one `tr=` announce URL of the magnet has a host from $hosts (case-insensitive). */
+    public static function magnetPointsAt(string $magnet, array $hosts): bool
+    {
+        if (!$hosts) return false;
+        $want = [];
+        foreach ($hosts as $h) {
+            $h = self::hostOf((string) $h);
+            if ($h !== null) $want[$h] = true;
+        }
+        if (!$want) return false;
+        foreach (self::trackerHostsOf($magnet) as $host) {
+            if (isset($want[$host])) return true;
+        }
+        return false;
+    }
+
+    /** Lowercase hosts of every `tr=` parameter of a magnet URI (deduplicated). @return string[] */
+    public static function trackerHostsOf(string $magnet): array
+    {
+        if (!preg_match_all('/[?&]tr=([^&\s]+)/i', $magnet, $m)) return [];
+        $hosts = [];
+        foreach ($m[1] as $raw) {
+            $h = self::hostOf(rawurldecode(str_replace('+', '%20', $raw)));
+            if ($h !== null) $hosts[$h] = true;
+        }
+        return array_keys($hosts);
+    }
+
+    /**
+     * Admin setting → host list: comma / semicolon / whitespace / newline separated entries, each a
+     * hostname, an IP, `host:port` or a full URL. Normalised to lowercase hosts, deduplicated.
+     * @return string[]
+     */
+    public static function parseHostList(string $raw): array
+    {
+        $out = [];
+        foreach (preg_split('/[\s,;]+/', $raw) ?: [] as $entry) {
+            $h = self::hostOf($entry);
+            if ($h !== null) $out[$h] = true;
+        }
+        return array_keys($out);
+    }
+
+    /** Lowercase host of a URL, a `host:port` pair or a bare hostname / IP; null when unparsable. */
+    public static function hostOf(string $s): ?string
+    {
+        $s = trim($s);
+        if ($s === '') return null;
+        $host = preg_match('#^[a-z][a-z0-9+.\-]*://#i', $s) ? parse_url($s, PHP_URL_HOST) : parse_url('//' . $s, PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            // parse_url() rejects a few odd shapes (e.g. "host:port/path" without scheme) — fall back to
+            // "everything before the first ':' or '/'", which is all we need for a hostname / IPv4.
+            if (!preg_match('#^([a-z0-9._\-]+)(?::\d+)?(?:[/?\#]|$)#i', $s, $m)) return null;
+            $host = $m[1];
+        }
+        $host = strtolower(rtrim($host, '.'));
+        return $host !== '' ? $host : null;
+    }
+
     /** @return array<int, array{0: string, 1: ?string}> [[hash, name], …] — usually one entry */
     private static function hashesFromMagnet(string $uri): array
     {

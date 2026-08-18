@@ -14,8 +14,9 @@ use TryHackX\HomepageBlocks\Service\WhitelistScanner;
 /**
  * POST /api/tryhackx/homepage/whitelist/scan — admin-only, ONE batch per call (see WhitelistScanner).
  * Body: {cursor: int, batch?: int, dry_run?: bool}
- * 200 {ok, next_cursor, done, processed, hashes_found, sent, added, exists, banned, invalid, error,
- *      elapsed_ms, total_posts (cursor==0 only), max_post_id, last_error}
+ * 200 {ok, next_cursor, done, processed, hashes_found, skipped_no_tracker, sent, added, exists, banned,
+ *      invalid, error, elapsed_ms, total_posts (cursor==0 only), max_post_id, last_error}
+ *      (skipped_no_tracker: hashes dropped by "Only sync magnets that point at our tracker")
  * 409 {error:'already_running'}       — another scan batch is executing right now
  * 503 {error:'cooldown', retry_after} — the client is backing off after a tracker failure
  * 422 {error:'not_configured'}

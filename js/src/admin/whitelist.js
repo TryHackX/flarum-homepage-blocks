@@ -28,7 +28,7 @@ export default function registerWhitelistSettings() {
         secretMsg: null,
         testBusy: false,
         testResult: null,
-        scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0 },
+        scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0 },
     };
 
     function secretIsSet() {
@@ -78,7 +78,7 @@ export default function registerWhitelistSettings() {
     async function runScan(resume) {
         const s = st.scan;
         if (s.running) return;
-        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, hashes: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0 });
+        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0 });
         s.running = true; s.cancel = false; s.error = null; m.redraw();
         while (!s.done && !s.cancel) {
             let res;
@@ -99,6 +99,7 @@ export default function registerWhitelistSettings() {
             s.cursor = res.next_cursor;
             s.processed += res.processed;
             s.hashes += res.hashes_found;
+            s.skipped += res.skipped_no_tracker || 0; // "only our tracker" filter (older backends omit the field)
             s.sent += res.sent; s.added += res.added; s.exists += res.exists; s.banned += res.banned; s.invalid += res.invalid;
             s.done = !!res.done;
             m.redraw();
@@ -120,6 +121,8 @@ export default function registerWhitelistSettings() {
             const page = this;
             const enabled = settingIsTruthy(this.setting(S + '.whitelist_sync_enabled')());
             const dis = !enabled;
+            const requireTracker = settingIsTruthy(this.setting(S + '.whitelist_require_tracker')());
+            const hostsDis = dis || !requireTracker; // host list is inert unless the group is open AND the option is on
             const field = (key, labelKey, helpKey, attrs) =>
                 m('div', { className: 'HomepageBlocks-whitelistField' }, [
                     m('label', t(labelKey)),
@@ -180,6 +183,31 @@ export default function registerWhitelistSettings() {
                         ]),
                     ]),
 
+                    // Only sync magnets that point at our tracker (+ the host list, inert until the checkbox is on)
+                    m('div', { className: 'HomepageBlocks-whitelistRow' }, [
+                        m('div', { className: 'HomepageBlocks-whitelistField' }, [
+                            m('label', { className: 'checkbox' }, [
+                                m('input', { type: 'checkbox', className: 'HomepageBlocks-whitelistRequireTracker', disabled: dis, tabindex: dis ? -1 : 0, checked: requireTracker, onchange: (e) => this.setting(S + '.whitelist_require_tracker')(e.target.checked ? '1' : '0') }),
+                                ' ', t('require_tracker'),
+                            ]),
+                            m('div', { className: 'helpText' }, t('require_tracker_help')),
+                        ]),
+                        m('div', { className: 'HomepageBlocks-whitelistField' }, [
+                            m('label', t('tracker_hosts')),
+                            m('input', {
+                                type: 'text',
+                                className: 'FormControl HomepageBlocks-whitelistTrackerHosts',
+                                disabled: hostsDis,
+                                tabindex: hostsDis ? -1 : 0,
+                                placeholder: 'tryhackx.org, 135.125.236.64',
+                                autocomplete: 'off',
+                                value: this.setting(S + '.whitelist_tracker_hosts')() || '',
+                                oninput: (e) => this.setting(S + '.whitelist_tracker_hosts')(e.target.value),
+                            }),
+                            m('div', { className: 'helpText' }, t('tracker_hosts_help')),
+                        ]),
+                    ]),
+
                     // Test connection
                     m('div', { className: 'HomepageBlocks-whitelistActions' }, [
                         m('button', { type: 'button', className: 'Button', disabled: dis || st.testBusy, onclick: () => testConnection(page) }, [
@@ -200,7 +228,7 @@ export default function registerWhitelistSettings() {
                         ]),
                         (s.running || s.processed > 0 || s.error) ? m('div', { className: 'HomepageBlocks-progress' }, [
                             m('div', { className: 'HomepageBlocks-progressBar' }, m('div', { className: 'HomepageBlocks-progressFill' + (s.error ? ' is-error' : s.done ? ' is-done' : ''), style: 'width:' + pct + '%' })),
-                            m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress', { processed: s.processed, total: s.total === null ? '?' : s.total, hashes: s.hashes, added: s.added, exists: s.exists, banned: s.banned })),
+                            m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress', { processed: s.processed, total: s.total === null ? '?' : s.total, hashes: s.hashes, skipped: s.skipped, added: s.added, exists: s.exists, banned: s.banned })),
                             s.error ? m('div', { className: 'HomepageBlocks-err' }, s.error) : null,
                             s.cancel && !s.running ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_cancelled')) : null,
                         ]) : null,
