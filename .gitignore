@@ -2,3 +2,9 @@ js/node_modules/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Local working notes / tooling
+.claude/
+*.log
+HANDOFF*.md
+SPEC-*.md
