@@ -234,7 +234,7 @@ final class TrackerWhitelistClient
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_CONNECTTIMEOUT => max(1, min(2, $timeout)),
+            CURLOPT_CONNECTTIMEOUT => max(1, min(5, $timeout)), // a congested host needs more than 2 s to accept; the cooldown bounds the cost
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_USERAGENT => 'Flarum/2.0 HomepageBlocks-WhitelistSync',
             CURLOPT_HTTPHEADER => $headers,
