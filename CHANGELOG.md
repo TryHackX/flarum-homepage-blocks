@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Admin bundle split: the whitelist section lives in `js/src/admin/whitelist.js`.
+- Pre-release review fixes: credentials are validated locally (16-hex key ID, 64-hex secret, or
+  one `key_id.secret` token) and a malformed pair is **never sent** — the tracker bans an IP for
+  30 days on any bad attempt; the secret endpoint accepts only those shapes (422 otherwise);
+  saving a composite token also updates the key-ID field's live Stream (a later Save no longer
+  writes the old key ID back); the listener checks the cooldown before anything else and the DNS
+  reserved-range guard runs only right before a real request (no blocking lookup on every post
+  save); `test_help` no longer claims the forum's IP is exempt on the tracker.
 - README: new feature bullet, requirements (tracker ≥ 1.2.0, ext-curl), configuration row and
   API endpoints for the three new admin-only routes.
 

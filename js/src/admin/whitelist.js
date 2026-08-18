@@ -35,12 +35,17 @@ export default function registerWhitelistSettings() {
         return String(app.data.settings[S + '.whitelist_api_secret_set'] || '') === '1';
     }
 
-    async function saveSecret(clear) {
+    async function saveSecret(page, clear) {
         st.secretBusy = true; st.secretMsg = null; m.redraw();
         try {
             const res = await app.request({ method: 'POST', url: apiUrl() + '/tryhackx/homepage/whitelist/secret', body: clear ? { clear: true } : { secret: st.secretInput.trim() } });
             app.data.settings[S + '.whitelist_api_secret_set'] = res.set ? '1' : '0';
-            if (res.key_id) app.data.settings[S + '.whitelist_api_key_id'] = res.key_id;
+            if (res.key_id !== undefined && res.key_id !== null) {
+                // update BOTH the raw settings and the page's memoized Stream, otherwise the input keeps
+                // the stale value, the page turns dirty and a later Save writes the old key id back
+                app.data.settings[S + '.whitelist_api_key_id'] = res.key_id;
+                page.setting(S + '.whitelist_api_key_id')(res.key_id);
+            }
             st.secretInput = '';
             st.secretMsg = { type: 'ok', text: clear ? t('secret_cleared') : t('secret_saved') };
         } catch (e) {
@@ -61,7 +66,7 @@ export default function registerWhitelistSettings() {
             if (res.ok) {
                 st.testResult = { ok: true, text: t('test_ok', { count: res.whitelist_count === null || res.whitelist_count === undefined ? '?' : res.whitelist_count, mode: res.mode || '?', skew: res.skew_seconds || 0, ms: res.elapsed_ms || 0 }) };
             } else {
-                const hint = (res.http_status === 403 || res.http_status === 401) ? ' ' + t('test_forbidden_hint') : '';
+                const hint = (res.http_status === 403 || res.http_status === 401) ? ' ' + t('test_forbidden_hint') : res.error === 'invalid_credentials' ? ' ' + t('test_invalid_credentials_hint') : '';
                 st.testResult = { ok: false, text: t('test_fail', { error: res.error || ('HTTP ' + res.http_status) }) + hint };
             }
         } catch (e) {
@@ -150,8 +155,8 @@ export default function registerWhitelistSettings() {
                                 value: st.secretInput,
                                 oninput: (e) => { st.secretInput = e.target.value; },
                             }),
-                            m('button', { type: 'button', className: 'Button Button--primary', disabled: dis || st.secretBusy || st.secretInput.trim() === '', onclick: () => saveSecret(false) }, t('secret_save')),
-                            secretIsSet() ? m('button', { type: 'button', className: 'Button', disabled: dis || st.secretBusy, onclick: () => saveSecret(true) }, t('secret_clear')) : null,
+                            m('button', { type: 'button', className: 'Button Button--primary', disabled: dis || st.secretBusy || st.secretInput.trim() === '', onclick: () => saveSecret(page, false) }, t('secret_save')),
+                            secretIsSet() ? m('button', { type: 'button', className: 'Button', disabled: dis || st.secretBusy, onclick: () => saveSecret(page, true) }, t('secret_clear')) : null,
                         ]),
                         m('div', { className: 'helpText' }, [
                             t('api_secret_help'), ' ',

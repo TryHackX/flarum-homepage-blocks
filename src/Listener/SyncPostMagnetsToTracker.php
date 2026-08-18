@@ -38,11 +38,10 @@ class SyncPostMagnetsToTracker
         try {
             $post = $event->post ?? null;
             if (!$post instanceof CommentPost) return;
-            if (!$this->client->isEnabled() || !$this->client->isConfigured()) return;
+            if (!$this->client->isEnabled() || $this->client->inCooldown() || !$this->client->isConfigured()) return;
             if ($post->hidden_at !== null || !empty($post->is_private)) return;
             $discussion = $post->discussion;
             if ($discussion && ($discussion->hidden_at !== null || !empty($discussion->is_private))) return;
-            if ($this->client->inCooldown()) return;
 
             $r = $this->scanner->syncPost($post);
             if ($r !== null && !$r['ok'] && !self::$loggedThisRequest) {
