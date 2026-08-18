@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-08-18
+
+> Adds the **Tracker whitelist sync** module. **PHP + frontend + locales, no migrations** —
+> `composer update` + `php flarum cache:clear`. Requires
+> [tryhackx-tracker](https://github.com/TryHackX/tryhackx-tracker) ≥ 1.2.0 (whitelist mode +
+> server-to-server API) and PHP `ext-curl`.
+
+### Added
+- **Tracker whitelist sync** admin section: enable toggle (animated reveal of the dependent
+  fields), tracker URL, API key ID, API secret with its own **Save secret / Clear** buttons,
+  live-sync timeout (1–10 s), optional bare 40-hex detection (off by default — commit SHAs and
+  SHA-1 IOCs are false positives on a security forum), **Test connection** and **Scan whole
+  forum** with a progress bar.
+- **Live sync listener** (`Listener\SyncPostMagnetsToTracker`) on `Post\Event\Posted`,
+  `Post\Event\Revised` and — when `flarum/approval` is enabled — `PostWasApproved`: magnet
+  links (`[magnet]` BBCode, plain `magnet:` URIs, `btih:` fragments) of visible comment posts
+  are pushed to the tracker's `v1/whitelist/submit` endpoint with the post/discussion reference.
+  Never throws into the post save; failures set a cooldown (60 s transport / 600 s auth) so a
+  dead tracker costs at most one short attempt per window, and are logged once per request.
+- **Batched, resumable forum scan** (`Service\WhitelistScanner`, `WhitelistScanController`):
+  one HTTP request per batch of ≤200 visible posts, ≤500 hashes and one tracker call per batch
+  inside a 20 s wall budget; on a tracker error the cursor is **not** advanced (nothing is
+  skipped) and the UI offers *Resume*. Single-flight guard (409) and cooldown answer (503).
+- `Http\TrackerWhitelistClient` — raw cURL (like the stats fetch), http/https only, no
+  redirects, TLS verified, IPv4, response cap, bearer auth; the secret is never logged.
+- `Api\Controller\WhitelistSecretController` — the secret is **stripped from the admin settings
+  payload** (`Settings\Event\Deserializing`, like magnet-link's `token_salt`) and replaced by a
+  synthetic `whitelist_api_secret_set` flag, so a normal settings save can never wipe it and the
+  browser never sees it.
+
+### Changed
+- Admin bundle split: the whitelist section lives in `js/src/admin/whitelist.js`.
+- README: new feature bullet, requirements (tracker ≥ 1.2.0, ext-curl), configuration row and
+  API endpoints for the three new admin-only routes.
+
 ## [2.5.1] - 2026-07-09
 
 > Turns the search rate limiter into a **real server-side guard**. **PHP + frontend, no

@@ -109,13 +109,30 @@ You can also find the donation option in the extension's admin settings panel.
   banner.
 - **Tag filtering** — show only tags that actually have discussions,
   optionally with discussion counts next to tag names.
+- **Tracker whitelist sync** (2.6.0) — when your OpenTracker runs in
+  *whitelist mode* (only registered info hashes are served — see
+  [tryhackx-tracker](https://github.com/TryHackX/tryhackx-tracker) ≥ 1.2.0),
+  every magnet link posted on the forum is registered on the tracker
+  automatically: new posts, edits and (with `flarum/approval`) approvals are
+  pushed live through the tracker's server-to-server API (bearer key), and a
+  **Scan whole forum** button walks all visible posts in small batches
+  (one request per batch, well inside the PHP time limit, resumable). Failures
+  never block a post: short timeout + failure cooldown + one-line logging.
+  The API secret is stored server-side only (never sent to the admin
+  frontend) and saved through its own endpoint.
 - **Polish & English locales** — fully translated UI.
 
 ## Requirements
 
 - Flarum `^2.0.0-rc.1`
-- PHP `^8.3` (matches Flarum 2.x's own minimum)
+- PHP `^8.3` (matches Flarum 2.x's own minimum); `ext-curl` for the tracker
+  statistics fetch and the whitelist sync
 - `flarum/tags` (required)
+- For **Tracker whitelist sync**: [tryhackx-tracker](https://github.com/TryHackX/tryhackx-tracker)
+  ≥ 1.2.0 with `tracker_mode = whitelist`, an API client created in its admin
+  panel (Whitelist → API clients) and the tracker's *API ban exempt IPs* list
+  containing this forum's outbound IP (a wrong secret from a non-exempt IP is
+  banned for 30 days by design).
 
 ### Recommended companions
 
@@ -156,6 +173,7 @@ php flarum cache:clear
 | **Tracker Statistics** | Toggle internal stats, set the OpenTracker XML URL, cache lifetime, max fetch time and client refresh interval. |
 | **Content Settings** | Override title and content length limits. |
 | **Rate limiting** | Per-IP points limiter on search/filters. When a visitor runs out of points the IP is temporarily blocked (configurable duration and post-block budget reset). Guests pay an extra per-action cost. |
+| **Tracker whitelist sync** | Enable toggle (reveals the settings), tracker URL, API key ID, API secret (own *Save secret* button — stored server-side only), live-sync timeout, optional bare-hash detection, **Test connection** and **Scan whole forum** with a progress bar (batched, resumable). |
 
 ## API endpoints
 
@@ -163,6 +181,9 @@ php flarum cache:clear
 | --- | --- | --- |
 | `GET` | `/api/tryhackx/homepage/stats` | Forum / tracker statistics (served from a shared server-side cache). |
 | `GET` | `/api/tryhackx/homepage/points/check` | User points / rating helper used by the filter bar. |
+| `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew. |
+| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, added, exists, banned, …}`); on a tracker error the cursor is not advanced. |
+| `POST` | `/api/tryhackx/homepage/whitelist/secret` | Admin only — stores / clears the tracker API secret (accepts a full `key_id.secret` token). |
 
 ## Links
 

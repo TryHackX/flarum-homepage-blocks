@@ -14,6 +14,8 @@ use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Cache\CacheStore;
 use TryHackX\HomepageBlocks\Cache\FileStore;
 use TryHackX\HomepageBlocks\Cache\Store;
+use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
+use TryHackX\HomepageBlocks\Service\WhitelistScanner;
 
 /**
  * Wiąże {@see Store} z właściwą implementacją, wybieraną AUTOMATYCZNIE z bieżącej
@@ -38,6 +40,9 @@ class StoreProvider extends AbstractServiceProvider
         // dawną file-scope memoizację w extend.php; callbacki field() pobierają go
         // tanim resolve()em (audyt H6/H7). Zależności (settings, logger) auto-wstrzykiwane.
         $this->container->singleton(FieldLengthModifier::class);
+        // Whitelist sync: one client/scanner per request (cooldown state + settings read once).
+        $this->container->singleton(TrackerWhitelistClient::class);
+        $this->container->singleton(WhitelistScanner::class);
 
         $this->container->singleton(Store::class, function ($container) {
             // Ścieżka domyślna: natywny magazyn plikowy.

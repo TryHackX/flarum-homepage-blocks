@@ -2,6 +2,7 @@ import app from 'flarum/admin/app';
 import { extend } from 'flarum/common/extend';
 import ResetExtensionSettingsModal from 'flarum/admin/components/ResetExtensionSettingsModal';
 import SupportModal from './components/SupportModal';
+import registerWhitelistSettings from './whitelist';
 
 const S = 'tryhackx-homepage-blocks';
 
@@ -417,4 +418,9 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                 ]),
             ]);
         });
+});
+
+// Tracker whitelist sync section (own module: toggle-reveal group, secret endpoint, test, batched scan)
+app.initializers.add('tryhackx-homepage-blocks-whitelist', () => {
+    registerWhitelistSettings();
 });

@@ -9,6 +9,10 @@ use Flarum\Search\Database\DatabaseSearchDriver;
 use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Api\Controller\CheckPointsController;
 use TryHackX\HomepageBlocks\Api\Controller\TrackerStatsController;
+use TryHackX\HomepageBlocks\Api\Controller\WhitelistScanController;
+use TryHackX\HomepageBlocks\Api\Controller\WhitelistSecretController;
+use TryHackX\HomepageBlocks\Api\Controller\WhitelistTestController;
+use TryHackX\HomepageBlocks\Listener\SyncPostMagnetsToTracker;
 use TryHackX\HomepageBlocks\Api\Middleware\SearchRateLimitMiddleware;
 use TryHackX\HomepageBlocks\Search\RatingFilter;
 use TryHackX\HomepageBlocks\Search\DateIntervalFilter;
@@ -46,7 +50,31 @@ return [
     // /stats to czysty odczyt (cache statystyk) → zostaje GET.
     (new Extend\Routes('api'))
         ->get('/tryhackx/homepage/stats', 'tryhackx.homepage.stats', TrackerStatsController::class)
-        ->post('/tryhackx/homepage/points/check', 'tryhackx.homepage.points.check', CheckPointsController::class),
+        ->post('/tryhackx/homepage/points/check', 'tryhackx.homepage.points.check', CheckPointsController::class)
+        // Tracker whitelist sync (admin-only controllers, assertAdmin inside).
+        ->post('/tryhackx/homepage/whitelist/test', 'tryhackx.homepage.whitelist.test', WhitelistTestController::class)
+        ->post('/tryhackx/homepage/whitelist/scan', 'tryhackx.homepage.whitelist.scan', WhitelistScanController::class)
+        ->post('/tryhackx/homepage/whitelist/secret', 'tryhackx.homepage.whitelist.secret', WhitelistSecretController::class),
+
+    // ── Tracker whitelist sync ──
+    // Every created / edited comment post is scanned for magnet links which are pushed to the
+    // tracker's whitelist API (see Listener\SyncPostMagnetsToTracker — never throws, cooldown on
+    // failure). Posted covers a discussion's first post; hidden/private posts are skipped.
+    // The API secret is stripped from the admin settings payload (like magnet-link's token_salt) and
+    // saved through its own endpoint, so a regular settings save can never wipe it; the frontend only
+    // gets a synthetic "is set" flag.
+    (new Extend\Event())
+        ->listen(\Flarum\Settings\Event\Deserializing::class, function (\Flarum\Settings\Event\Deserializing $event) {
+            $secret = $event->settings['tryhackx-homepage-blocks.whitelist_api_secret'] ?? '';
+            unset($event->settings['tryhackx-homepage-blocks.whitelist_api_secret']);
+            $event->settings['tryhackx-homepage-blocks.whitelist_api_secret_set'] = ($secret !== null && $secret !== '') ? '1' : '0';
+        })
+        ->listen(\Flarum\Post\Event\Posted::class, SyncPostMagnetsToTracker::class)
+        ->listen(\Flarum\Post\Event\Revised::class, SyncPostMagnetsToTracker::class),
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('flarum-approval', fn () => [
+            (new Extend\Event())->listen(\Flarum\Approval\Event\PostWasApproved::class, SyncPostMagnetsToTracker::class),
+        ]),
 
     // Twarda bramka serwerowa limitera na rdzeniowym GET /api/discussions z ciężkim
     // filtrem title/user (LIKE). Pre-flight /points/check to tylko UX — to middleware
