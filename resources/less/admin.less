@@ -282,7 +282,7 @@
     margin-bottom: 14px;
 
     &--small {
-        width: 140px;
+        width: 285px;
     }
 
     label {
@@ -368,4 +368,144 @@
 
 .HomepageBlocks-err {
     color: #ff5252;
+}
+
+// ──────────── Phones (Flarum's @phone breakpoint) ────────────
+// Everything stacks full-width, nothing may overflow to the right, selects match the
+// height of text inputs, and action buttons are centred / full-width.
+@media (max-width: 767px) {
+    // Overflow guard for every custom group rendered by the extension.
+    .HomepageBlocks-lengthGroup,
+    .HomepageBlocks-pointsGroup,
+    .HomepageBlocks-linksEditor,
+    .HomepageBlocks-whitelistGroup,
+    .HomepageBlocks-whitelistInner {
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    // Selects rendered by the extension get the same box as Flarum's text inputs
+    // (36px tall) instead of the browser's default, shorter select.
+    .HomepageBlocks-pointsField select.FormControl,
+    .HomepageBlocks-lengthField select.FormControl,
+    .HomepageBlocks-whitelistField select.FormControl,
+    .tryhackx-homepage-blocks-Page select.FormControl,
+    .tryhackx-homepage-blocks-settings select.FormControl {
+        height: 36px;
+        min-height: 36px;
+        padding-top: 0;
+        padding-bottom: 0;
+        line-height: 34px;
+        box-sizing: border-box;
+    }
+
+    // Title / content length rows: min, max and the "restore defaults" button stack.
+    .HomepageBlocks-lengthRow {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        width: 100%;
+    }
+
+    .HomepageBlocks-lengthField {
+        width: 100%;
+
+        .FormControl {
+            width: 100%;
+            min-width: 0;
+        }
+    }
+
+    .HomepageBlocks-lengthDefault {
+        width: 100%;
+        margin-bottom: 0;
+    }
+
+    // Points-based rate limiting: one field per line, full width.
+    .HomepageBlocks-pointsRow {
+        flex-direction: column;
+        flex-wrap: nowrap;
+        gap: 12px;
+        max-width: none;
+    }
+
+    .HomepageBlocks-pointsField {
+        width: 100%;
+        flex: 1 1 auto;
+    }
+
+    // Custom links editor: let the table scroll inside its own box instead of the page.
+    .HomepageBlocks-linksEditor {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .HomepageBlocks-linksAdd {
+        width: 100%;
+    }
+
+    // Whitelist sync section
+    .HomepageBlocks-whitelistInner {
+        max-width: none;
+    }
+
+    .HomepageBlocks-whitelistField {
+        width: 100%;
+        min-width: 0;
+
+        &--small {
+            width: 100%;
+        }
+
+        .FormControl {
+            width: 100%;
+            min-width: 0;
+        }
+    }
+
+    .HomepageBlocks-whitelistStack .HomepageBlocks-whitelistTrackerHosts {
+        max-width: none;
+    }
+
+    .HomepageBlocks-whitelistRow {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    // Secret row: input takes the whole line, the buttons wrap below it and are centred.
+    .HomepageBlocks-whitelistSecretRow {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+
+        .FormControl {
+            flex: 1 1 100%;
+            width: 100%;
+            min-width: 0;
+        }
+
+        .Button {
+            flex: 1 1 auto;
+            min-width: 120px;
+            text-align: center;
+        }
+    }
+
+    // Test connection / Scan / Cancel / Resume: full-width, centred buttons; result text below.
+    .HomepageBlocks-whitelistActions {
+        justify-content: center;
+        gap: 8px;
+
+        .Button {
+            width: 100%;
+            text-align: center;
+        }
+    }
+
+    .HomepageBlocks-whitelistTestResult {
+        flex: 1 1 100%;
+        text-align: center;
+    }
 }

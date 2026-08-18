@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.3] - 2026-08-19
+
+### Changed
+- Admin settings: wider small fields (285 px), phone layout (≤767 px) — fields stack full-width, selects
+  match input height, secret row wraps, action buttons centred, nothing overflows to the right.
+
 ## [2.6.2] - 2026-08-18
 
 ### Fixed
