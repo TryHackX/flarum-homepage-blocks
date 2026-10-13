@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-10-14
+
+### Fixed
+- **Tracker whitelist sync runs after the post is saved, not during the save.** Flarum
+  dispatches `Posted` for a new discussion's first post inside the discussion-create database
+  transaction, so the live sync called the tracker API (timeout up to 10 s) while that
+  transaction — and its row locks — stayed open: with a slow tracker, publishing a topic (and
+  other writes waiting on those locks) could hang for the whole timeout, and a save that was
+  later rolled back had already been whitelisted. The sync is now deferred with
+  `Connection::afterCommit()` (immediate when no transaction is open, skipped on rollback;
+  cores without a transactions manager keep the old immediate call). Same for replies, edits
+  and approvals. New integration tests check that a new discussion and a reply are synced
+  exactly once, after the commit, and that a tracker failure never breaks posting.
+
 ## [2.8.1] - 2026-10-14
 
 ### Removed

@@ -22,8 +22,10 @@ use TryHackX\HomepageBlocks\Service\MagnetExtractor;
  *
  * Credentials are validated locally before any request: the tracker bans the source IP for 30 days
  * on ANY malformed or unknown auth attempt, so a typo must never reach the wire.
+ *
+ * Not final: the integration tests replace the transport with a recording double.
  */
-final class TrackerWhitelistClient
+class TrackerWhitelistClient
 {
     public const S = 'tryhackx-homepage-blocks';
     public const KEY_ID_RE = '/^[a-f0-9]{16}$/i';
