@@ -114,8 +114,8 @@ You can also find the donation option in the extension's admin settings panel.
   (`Size:`, `Seasons:`, `Year:` …, comma separated, matched literally), which
   size sources to use (magnet `xl=` exact length → a `Size:` line → a size in
   the title), binary or decimal units, and the series rules (a kind field such
-  as `Serial: TV Series`, seasons / episodes values, `S01E01` markers, or
-  admin-picked *series tags*). Posts are read as plain text, so BBCode,
+  as `Serial: TV Series`, seasons / episodes values, `S01E01` markers). Posts
+  are read as plain text, so BBCode,
   Markdown and literal markup all work.
 - **Content-validation overrides** — override Flarum's built-in title
   and content length limits without patching core:
@@ -229,7 +229,7 @@ enabling them (admin → *Index* → *Rebuild index*, or
 | **Rate limiting** | Per-IP points limiter on search/filters. When a visitor runs out of points the IP is temporarily blocked (configurable duration and post-block budget reset). Guests pay an extra per-action cost. |
 | **Tracker whitelist sync** | Enable toggle (reveals the settings), tracker URL, API key ID, API secret (own *Save secret* button — stored server-side only), live-sync timeout, optional bare-hash detection, **Test connection** and **Scan whole forum** with a progress bar (batched, resumable). |
 | ↳ **Only sync magnets that point at our tracker** (2.6.1) | Off by default. When on, a hash is sent only if its magnet link has a `tr=` announce URL on one of the **Tracker hosts** (comma / newline separated hostnames or IPs, e.g. `tryhackx.org, 135.125.236.64`; `host:port` / full URLs accepted, case-insensitive). Hashes without a magnet (bare `btih:` / bare 40-hex) are skipped; the scan reports them as *skipped*. An empty host list sends nothing and is reported on the last-error line. |
-| **Advanced filters** (2.8.0) | Master switch (off by default), panel expanded by default, one switch per filter (filters needing a missing extension are greyed out), Type position / field name / *series tags*, extra sorts, **How release data is read from posts** (size sources, units, labels, series rules — placeholders show the defaults) and the **Index** card (status, *Rebuild index*, *Only missing / outdated*, per-discussion preview). After enabling an index-based filter, rebuild the index once; after changing the parser rules, save and rebuild. |
+| **Advanced filters** (2.8.0) | Master switch (off by default), panel expanded by default, one switch per filter (filters needing a missing extension are greyed out), Type position / field name, extra sorts, **How release data is read from posts** (size sources, units, labels, series rules — placeholders show the defaults) and the **Index** card (status, *Rebuild index*, *Only missing / outdated*, per-discussion preview). After enabling an index-based filter, rebuild the index once; after changing the parser rules, save and rebuild. |
 
 ### Advanced filters — API
 

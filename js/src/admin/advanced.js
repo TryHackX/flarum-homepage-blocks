@@ -60,7 +60,6 @@ export default function registerAdvancedSettings() {
         statusError: null,
         scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, onlyStale: false, done: false, error: null },
         preview: { id: '', busy: false, result: null, error: null },
-        tags: null,
     };
 
     async function loadStatus() {
@@ -74,20 +73,6 @@ export default function registerAdvancedSettings() {
         }
         st.statusLoading = false;
         m.redraw();
-    }
-
-    function loadTags() {
-        if (st.tags !== null) return;
-        st.tags = [];
-        const done = () => {
-            st.tags = app.store.all('tags').slice().sort((a, b) => (a.name() || '').localeCompare(b.name() || ''));
-            m.redraw();
-        };
-        if (app.tagList && typeof app.tagList.load === 'function') {
-            app.tagList.load().then(done).catch(() => {});
-        } else {
-            app.store.find('tags').then(done).catch(() => {});
-        }
     }
 
     async function rebuild(onlyStale, resume) {
@@ -199,7 +184,6 @@ export default function registerAdvancedSettings() {
             if (enabled && st.status === null && !st.statusLoading && !st.statusError) loadStatus();
 
             const typeOn = flag('adv_f_type');
-            if (enabled && typeOn) loadTags();
             const metaOn = FILTERS.some((f) => f.meta && flag('adv_f_' + f.id)) || flag('adv_sort_size') || flag('adv_sort_year');
             const defaults = (st.status && st.status.defaults) || {};
 
@@ -224,11 +208,6 @@ export default function registerAdvancedSettings() {
             }));
 
             // ── 2. Type options ──
-            const seriesTags = String(get('adv_series_tags') || '').split(',').map((v) => v.trim()).filter(Boolean);
-            const toggleTag = (id) => {
-                const next = seriesTags.indexOf(id) === -1 ? seriesTags.concat([id]) : seriesTags.filter((x) => x !== id);
-                set('adv_series_tags', next.join(','));
-            };
             const typeBox = typeOn ? m('div', { className: 'HomepageBlocks-advBox' }, [
                 m('h4', { className: 'HomepageBlocks-pointsHeading' }, t('type_header')),
                 m('div', { className: 'HomepageBlocks-whitelistRow' }, [
@@ -258,23 +237,6 @@ export default function registerAdvancedSettings() {
                             oninput: (e) => set('adv_type_label', e.target.value),
                         }),
                     ]),
-                ]),
-                m('div', { className: 'HomepageBlocks-whitelistField' }, [
-                    m('label', t('series_tags')),
-                    m('div', { className: 'HomepageBlocks-advChips' }, (st.tags || []).length
-                        ? st.tags.map((tag) => {
-                            const id = String(tag.id());
-                            const on = seriesTags.indexOf(id) !== -1;
-                            return m('button', {
-                                type: 'button',
-                                className: 'HomepageBlocks-advChip' + (on ? ' is-on' : ''),
-                                'aria-pressed': on ? 'true' : 'false',
-                                disabled: !enabled,
-                                onclick: () => toggleTag(id),
-                            }, tag.name());
-                        })
-                        : m('span', { className: 'helpText' }, t('series_tags_loading'))),
-                    m('div', { className: 'helpText' }, t('series_tags_help')),
                 ]),
             ]) : null;
 

@@ -14,9 +14,8 @@ use Flarum\Settings\SettingsRepositoryInterface;
  *   adv_type_placement     'button' (switch next to "More filters", default) | 'main'
  *                          (select between Resolution and Direction) | 'panel'
  *   adv_type_label         custom name of the Type field (empty = translation)
- *   adv_series_tags        tag ids that always mean "series" (comma separated)
  *   adv_sort_size / _year  extra sort options
- *   adv_open_default       "More filters" starts expanded
+ *   adv_open_default       "More filters" starts expanded (default: collapsed)
  *
  * A filter that needs another extension is only "enabled" while that extension is.
  */
@@ -98,15 +97,6 @@ final class AdvancedSettings
     public function binaryUnits(): bool
     {
         return $this->settings->get(self::P . 'meta_size_units') !== 'decimal';
-    }
-
-    /** @return int[] */
-    public function seriesTagIds(): array
-    {
-        $raw = (string) $this->settings->get(self::P . 'adv_series_tags', '');
-        $ids = array_filter(array_map('intval', preg_split('/[\s,;]+/', $raw) ?: []), fn (int $id) => $id > 0);
-
-        return array_values(array_unique(array_slice($ids, 0, 200)));
     }
 
     /**

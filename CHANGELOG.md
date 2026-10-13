@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-10-14
+
+### Removed
+- The *Tags that always mean "series"* option of the Type filter: whether a discussion is a
+  movie or a series comes from its post only (kind field, seasons / episodes, `S01E01`
+  markers) — tags play no part. A migration drops the stored value.
+
+### Changed
+- *More filters* help text: the panel starts collapsed on every visit unless *expanded by
+  default* is ticked (it is off by default).
+
 ## [2.8.0] - 2026-10-14
 
 > **More filters** — a collapsible panel of extra filters, a movies / series switch, new
@@ -32,8 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (dates follow the visitor's time zone).
 - **Type: All / Movies / Series** — a switch next to *More filters* (or, per setting, a list
   in the main row or a field in the panel) with live counts. Series are recognised by a kind
-  field (`Serial: TV Series`), seasons / episodes values, `S01E01` markers or admin-picked
-  *series tags*; discussions that aren't releases at all are neither movies nor series.
+  field (`Serial: TV Series`), seasons / episodes values or `S01E01` markers; discussions
+  that aren't releases at all are neither movies nor series.
 - **Sorts by size and by release year** (unknown values always last).
 - **Metadata index** (`homepage_discussion_meta` table) — release data read once per
   discussion from its title and first post (as plain text: BBCode, Markdown and literal

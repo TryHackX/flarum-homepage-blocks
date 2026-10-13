@@ -8,15 +8,10 @@ use TryHackX\HomepageBlocks\Advanced\AdvancedSettings;
 use TryHackX\HomepageBlocks\Meta\MetaIndexer;
 
 /**
- * `filter[mediaType]=movie|series`.
- *
- *  - series: the index says series, OR the discussion has one of the admin's
- *    "series tags";
- *  - movie:  the index says movie (a release that is not a series) AND it has none
- *    of those tags.
- *
- * Discussions that aren't releases at all (no size / year / runtime / series data)
- * are neither.
+ * `filter[mediaType]=movie|series` — what the metadata index recognised from the post
+ * (a kind field such as "Serial: TV Series", seasons / episodes values, S01E01 markers).
+ * Discussions that aren't releases at all (no size / year / runtime / series data) are
+ * neither.
  */
 class MediaTypeFilter extends AbstractAdvancedFilter
 {
@@ -44,23 +39,9 @@ class MediaTypeFilter extends AbstractAdvancedFilter
 
     protected function apply(Builder $query, mixed $prepared): void
     {
-        $series = $prepared === 'series';
-        $meta = $this->db->table(MetaIndexer::TABLE)->select('discussion_id')->where('is_series', $series ? 1 : 0);
-        $tags = $this->adv->seriesTagIds();
-        $tagged = $tags ? $this->db->table('discussion_tag')->select('discussion_id')->whereIn('tag_id', $tags) : null;
-
-        if ($series) {
-            $query->where(function (Builder $q) use ($meta, $tagged) {
-                $q->whereIn('discussions.id', $meta);
-                if ($tagged) {
-                    $q->orWhereIn('discussions.id', $tagged);
-                }
-            });
-        } else {
-            $query->whereIn('discussions.id', $meta);
-            if ($tagged) {
-                $query->whereNotIn('discussions.id', $tagged);
-            }
-        }
+        $query->whereIn(
+            'discussions.id',
+            $this->db->table(MetaIndexer::TABLE)->select('discussion_id')->where('is_series', $prepared === 'series' ? 1 : 0)
+        );
     }
 }

@@ -23,7 +23,7 @@ use TryHackX\HomepageBlocks\Meta\MetaIndexer;
  *   3 series  Beast Games (2024-)            5.48 GiB, 10 episodes (running)  1 day old
  *   4 —       Witamy na forum                (not a release)                  1 day old
  *   5 series  Private show (2020)  private → invisible to guests
- *   6 movie   Short (2020) [1 GB]  tagged "seriale" (the admin's series tag)
+ *   6 movie   Short (2020) [1 GB]  tagged "seriale" — a tag never makes it a series
  */
 class AdvancedFiltersTest extends TestCase
 {
@@ -41,7 +41,6 @@ class AdvancedFiltersTest extends TestCase
             'adv_f_episodes', 'adv_f_year', 'adv_f_duration', 'adv_f_imdb', 'adv_f_filmweb', 'adv_sort_size', 'adv_sort_year'] as $key) {
             $this->setting('tryhackx-homepage-blocks.' . $key, '1');
         }
-        $this->setting('tryhackx-homepage-blocks.adv_series_tags', (string) self::SERIES_TAG);
 
         $now = Carbon::now();
         $d = fn (int $id, string $title, Carbon $created, array $extra = []) => array_merge([
@@ -155,14 +154,14 @@ class AdvancedFiltersTest extends TestCase
     }
 
     #[Test]
-    public function media_type_uses_the_index_and_the_series_tags(): void
+    public function media_type_comes_from_the_post_not_from_tags(): void
     {
         $this->reindex();
 
-        $this->assertSame([2, 3, 6], $this->ids(['mediaType' => 'series']), 'tag "seriale" makes 6 a series');
-        $this->assertSame([1], $this->ids(['mediaType' => 'movie']), 'not 4 (no release) nor 6 (series tag)');
-        $this->assertSame([1, 4], $this->ids(['-mediaType' => 'series']), 'negation = everything else');
-        $this->assertSame([2, 3, 6], $this->ids(['mediaType' => 'series'], null, 2), 'the private one stays invisible');
+        $this->assertSame([2, 3], $this->ids(['mediaType' => 'series']), 'a "Seriale" tag does not make 6 a series');
+        $this->assertSame([1, 6], $this->ids(['mediaType' => 'movie']), 'not 4 (no release)');
+        $this->assertSame([1, 4, 6], $this->ids(['-mediaType' => 'series']), 'negation = everything else');
+        $this->assertSame([2, 3], $this->ids(['mediaType' => 'series'], null, 2), 'the private one stays invisible');
     }
 
     #[Test]
@@ -225,15 +224,15 @@ class AdvancedFiltersTest extends TestCase
         )->getBody(), true);
 
         $all = $facets([]);
-        $this->assertSame(['total' => 5, 'movie' => 1, 'series' => 3], $all['mediaType']);
+        $this->assertSame(['total' => 5, 'movie' => 2, 'series' => 2], $all['mediaType']);
 
         $big = $facets(['sizeRange' => '10GB..']);
         $this->assertSame(['total' => 2, 'movie' => 1, 'series' => 1], $big['mediaType']);
         $this->assertSame(2, $big['category']['total']);
 
         $series = $facets(['mediaType' => 'series']);
-        $this->assertSame(3, $series['category']['total']);
-        $this->assertSame(1, $series['category']['counts'][(string) self::SERIES_TAG] ?? 0);
+        $this->assertSame(2, $series['category']['total']);
+        $this->assertSame(0, $series['category']['counts'][(string) self::SERIES_TAG] ?? 0, 'tags play no part in the type');
 
         $this->set('adv_f_type', '0');
         $this->assertArrayNotHasKey('mediaType', $facets([]));
