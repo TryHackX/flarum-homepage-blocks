@@ -10,7 +10,9 @@ export default class CollapsibleSection extends Component {
         const children = vnode.children || this.attrs.children || [];
         const iconClass = this.collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
 
-        return m('div', { className: 'HomepageSection' + (this.collapsed ? ' HomepageSection--collapsed' : '') }, [
+        const extraClass = this.attrs.className ? ' ' + this.attrs.className : '';
+
+        return m('div', { className: 'HomepageSection' + extraClass + (this.collapsed ? ' HomepageSection--collapsed' : '') }, [
             m(
                 'div',
                 {

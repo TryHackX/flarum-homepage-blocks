@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.png binary
+
+# Not needed in installed copies (composer dist archives).
+/tests export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+# README screenshots — rendered from the repository, never used by an install.
+/assets export-ignore

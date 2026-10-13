@@ -21,7 +21,9 @@ use TryHackX\HomepageBlocks\Security\RateLimiter;
  * udanym naliczeniu przyznajemy „grace" ({@see RateLimiter::grantGrace()}) — middleware
  * skonsumuje go zamiast naliczać ponownie realne żądanie tego samego wyszukiwania.
  *
- * Query: ?action=search
+ * Query: ?action=search[&facets=1]
+ *   facets=1 — UI pobierze też żywe liczniki Kategorii/Rozdzielczości dla tego
+ *   wyszukiwania ({@see FacetsController}); drugi grace pokrywa to żądanie.
  *
  * Odpowiedź:
  *   200 { ok: true, balance: ... }
@@ -52,6 +54,10 @@ class CheckPointsController implements RequestHandlerInterface
         // przepuścił następujące po nim realne żądanie /api/discussions bez podwójnego
         // naliczenia (patrz docblock klasy).
         $this->limiter->grantGrace($request);
+        // …oraz drugi dla żądania liczników (facets), jeśli UI je pobiera.
+        if (($request->getQueryParams()['facets'] ?? null) === '1') {
+            $this->limiter->grantGrace($request);
+        }
 
         return new JsonResponse([
             'ok' => true,

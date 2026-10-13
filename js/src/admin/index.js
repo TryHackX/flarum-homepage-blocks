@@ -130,11 +130,22 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.theme_mode'),
             help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.theme_mode_help'),
             options: {
-                auto: 'Auto',
-                light: 'Light',
-                dark: 'Dark',
+                auto: app.translator.trans('tryhackx-homepage-blocks.admin.settings.theme_mode_auto'),
+                light: app.translator.trans('tryhackx-homepage-blocks.admin.settings.theme_mode_light'),
+                dark: app.translator.trans('tryhackx-homepage-blocks.admin.settings.theme_mode_dark'),
             },
             default: 'auto',
+        })
+        .registerSetting({
+            setting: `${S}.style`,
+            type: 'select',
+            label: app.translator.trans('tryhackx-homepage-blocks.admin.settings.style'),
+            help: app.translator.trans('tryhackx-homepage-blocks.admin.settings.style_help'),
+            options: {
+                fitted: app.translator.trans('tryhackx-homepage-blocks.admin.settings.style_fitted'),
+                original: app.translator.trans('tryhackx-homepage-blocks.admin.settings.style_original'),
+            },
+            default: 'fitted',
         })
         .registerSetting({
             setting: `${S}.category_label`,

@@ -69,7 +69,11 @@ You can also find the donation option in the extension's admin settings panel.
   - Rating interval *(requires `tryhackx/flarum-topic-rating`)*
   - Date interval (Today, 1 day, 1 week, 2 weeks, 1 month, 3 / 6
     months, 1 year)
-  - Category (tag) selection
+  - Category (primary tag) and Resolution / add-on (secondary tag)
+    selection with **live counts**: every option shows how many discussions
+    the list returns if you pick it *together with all the other active
+    filters* (title, user, intervals, the other tag list), recalculated on
+    every change — so a number never promises results that aren't there.
   - Sort by — creation date (always available), plus a **Steam-DB-style
     confidence rating**, average rating, rating count and recently rated
     *(with `tryhackx/flarum-topic-rating`)*, views *(with `fof/discussion-views`)*,
@@ -107,8 +111,17 @@ You can also find the donation option in the extension's admin settings panel.
   collapsed by default to save space.
 - **Hide hero banner** — optional toggle to hide Flarum's default hero
   banner.
-- **Tag filtering** — show only tags that actually have discussions,
-  optionally with discussion counts next to tag names.
+- **Tag filtering** — show only tags that actually have discussions *under
+  the current filters* (the picked tag always stays listed), optionally with
+  the live counts next to tag names.
+- **Light / dark mode** — the blocks follow Flarum 2's colour scheme live
+  (header theme switcher, user preference, OS setting, high-contrast modes),
+  using the forum's own theme colours. The *Theme mode* setting can instead
+  pin the forum's light or dark palette.
+- **Two styles** — *Fitted* blends the blocks into the forum; *Original* is a
+  card design (rounded cards, primary-tinted header with an accent bar, stat
+  tiles with icon chips, pill-shaped tracker URLs). Both use the forum's
+  colours and follow light / dark mode.
 - **Tracker whitelist sync** (2.6.0) — when your OpenTracker runs in
   *whitelist mode* (only registered info hashes are served — see
   [tryhackx-tracker](https://github.com/TryHackX/tryhackx-tracker) ≥ 1.2.0),
@@ -168,7 +181,7 @@ php flarum cache:clear
 
 | Section | Description |
 | --- | --- |
-| **General** | Section titles, default-collapsed state, hero banner toggle, tag display options. |
+| **General** | Section titles, default-collapsed state, hero banner toggle, tag display options, theme mode (auto / light / dark) and style (fitted / original). |
 | **Tracker Info** | Tracker heading, sub-heading, announce URLs. |
 | **Tracker Statistics** | Toggle internal stats, set the OpenTracker XML URL, cache lifetime, max fetch time and client refresh interval. |
 | **Content Settings** | Override title and content length limits. |
@@ -181,10 +194,25 @@ php flarum cache:clear
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/tryhackx/homepage/stats` | Forum / tracker statistics (served from a shared server-side cache). |
-| `GET` | `/api/tryhackx/homepage/points/check` | User points / rating helper used by the filter bar. |
+| `POST` | `/api/tryhackx/homepage/points/check` | Rate-limiter pre-flight for a search (`?action=search`, `&facets=1` when the live counts will be fetched too). |
+| `GET` | `/api/tryhackx/homepage/facets` | Live Category / Resolution counts for the filter bar: `filter[title|user|dateInterval|ratingInterval]`, `category=<slug|all>`, `resolution=<slug|all>` → `{category: {total, counts: {tagId: n}}, resolution: {…}}`. Same filters and visibility as the discussion list; heavy title/user searches go through the rate limiter. |
 | `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew. |
 | `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, …}`); on a tracker error the cursor is not advanced. |
 | `POST` | `/api/tryhackx/homepage/whitelist/secret` | Admin only — stores / clears the tracker API secret (accepts a full `key_id.secret` token). |
+
+## Development & tests
+
+```bash
+composer install
+composer test:setup        # one-off: installs a throw-away Flarum (SQLite by default)
+composer test              # PHP unit + integration tests
+cd js && npm ci && npm run build
+```
+
+The integration suite sends real API requests to a test install (SQLite unless
+`DB_DRIVER` / `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` /
+`DB_PASSWORD` / `DB_PREFIX` point at a MySQL, MariaDB or PostgreSQL **test**
+database — all its tables are dropped).
 
 ## Links
 

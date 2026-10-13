@@ -67,13 +67,18 @@ export function showRateLimitNotice(retryAfter) {
  * Pre-flight: zapytaj serwer, czy akcja jest teraz dozwolona dla dzwoniącego
  * (dekrementuje kubełek punktów per-IP).
  *
+ * `options.facets` — to samo wyszukiwanie pobierze też liczniki Kategorii/
+ * Rozdzielczości (ciężkie przy filtrze tytułu/użytkownika), więc serwer przyzna
+ * drugi grace i nie naliczy tego żądania osobno.
+ *
  * Zwraca:
  *   { ok: true, balance }
  *   { ok: false, blocked: true, retryAfter }
  *   { ok: false, error }
  */
-export async function preflightCheck(scope) {
-    const url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/points/check?action=' + encodeURIComponent(scope);
+export async function preflightCheck(scope, options = {}) {
+    const url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/points/check?action=' + encodeURIComponent(scope)
+        + (options.facets ? '&facets=1' : '');
 
     const headers = { 'Accept': 'application/json' };
     // Endpoint jest POST (mutuje kubełek punktów — audyt H2), więc dokładamy token

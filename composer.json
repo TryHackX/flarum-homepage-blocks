@@ -59,5 +59,26 @@
         }
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "require-dev": {
+        "flarum/testing": "^2.0",
+        "tryhackx/flarum-topic-rating": "^2.5"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TryHackX\\HomepageBlocks\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": [
+            "@test:unit",
+            "@test:integration"
+        ],
+        "test:unit": "phpunit -c tests/phpunit.unit.xml",
+        "test:integration": "phpunit -c tests/phpunit.integration.xml",
+        "test:setup": "@php tests/integration/setup.php"
+    },
+    "config": {
+        "sort-packages": true
+    }
 }

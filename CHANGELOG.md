@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-13
+
+> Live filter counts, proper light / dark mode and a new "Original" style. **PHP + frontend +
+> locales, no migrations.**
+
+### Added
+- **Style setting** (`style`): *Fitted* (default) blends the blocks into the forum; *Original* is a
+  new card design — rounded cards with a soft shadow, a header tinted with the forum's primary
+  colour and an accent bar, a round toggle, tracker URLs as pills, a primary-coloured copy button,
+  stat tiles with icon chips and filled inputs with a primary focus ring. Both are built from the
+  forum's own theme colours, so they fit any Flarum 2 theme in light, dark and high-contrast mode.
+- **Live Category / Resolution counts.** The two tag lists in Advanced Filters used to show each
+  tag's global discussion count, which ignores every other filter — pick a resolution, a time
+  interval or a title and a category still said "(12)" while the list came back empty. Each option
+  now shows exactly how many discussions the list returns if it is picked *together with all the
+  other active filters* (title, user, creation / rating interval, the other tag list), recalculated
+  after every change. "All" shows the current total. With *Show only tags that have discussions*
+  on, options with no results under the current filters are hidden (the picked one always stays).
+  - New `GET /api/tryhackx/homepage/facets` endpoint, backed by `Search\FacetCounter`: it applies
+    the filters through the very same filter set-up as core's discussion search, on the same
+    visibility-scoped query, so counts can't drift from the list and never include discussions the
+    viewer can't see. Tag / interval combinations are cached for 60 s per guest / user (text
+    searches aren't cached).
+  - Heavy (title / user) count requests go through the points rate limiter like the search itself;
+    the pre-flight (`points/check?action=search&facets=1`) grants a second grace unit for them, so
+    the UI still pays once per search.
+
+### Fixed
+- **Resolution list missing tags.** The filter built its lists from the tags preloaded with the
+  forum, but Tags preloads only some secondary tags — on tryhackx.org e.g. *HDR* (26 discussions)
+  and *REMUX* never appeared. The complete list is now fetched once (Tags' cached `tagList`).
+- **Light / dark mode.** The blocks picked a palette once, from the OS preference OR'ed with the
+  theme, so with a dark OS they stayed dark after switching the forum to light (and never reacted to
+  Flarum 2's header theme switcher). The palette is now CSS custom properties that follow Flarum's
+  `data-theme` live — light, dark and the high-contrast variants — derived from the forum's own
+  theme colours, with no JS involved. *Theme mode: Light / Dark* still pins one mode (a class on
+  `<html>`), now using the forum's own light / dark palette (core's LESS variables) instead of a
+  fixed navy / grey one. Theme mode option labels are translated.
+
+### Docs
+- README: live counts, theme behaviour, the facets endpoint, `points/check` is `POST`, and a
+  *Development & tests* section (new PHPUnit suite on `flarum/testing`).
+
 ## [2.6.3] - 2026-08-19
 
 ### Changed

@@ -8,3 +8,9 @@ Thumbs.db
 *.log
 HANDOFF*.md
 SPEC-*.md
+
+# PHP tooling
+/vendor/
+/composer.lock
+/tests/.phpunit.cache/
+.phpunit.result.cache

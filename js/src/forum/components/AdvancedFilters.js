@@ -14,6 +14,13 @@ import { transStr } from '../utils/trans';
  *
  * Title search uses a custom TitleFilter (LIKE '%text%') registered in PHP,
  * accessible via filter[title]=value in the Flarum API.
+ *
+ * The Category / Resolution lists show live counts ("facets") from
+ * GET /api/tryhackx/homepage/facets: each option's number is what the list
+ * returns if that option is picked together with all the OTHER active filters
+ * (title, user, intervals, the other tag list) — so a number never promises
+ * results that aren't there. Until the first response arrives the tags' global
+ * counts are shown.
  */
 export default class AdvancedFilters extends Component {
     oninit(vnode) {
@@ -25,6 +32,13 @@ export default class AdvancedFilters extends Component {
         this.resolutionTags = [];
         this.debounceTimer = null;
 
+        // Live counts (see class doc). Reuse the last response while it still
+        // matches the filters (e.g. after collapse/expand), then refresh.
+        const cached = app.homepageFacets;
+        this.facets = cached && cached.key === JSON.stringify(this.facetParams()) ? cached.data : null;
+        this.facetsLoading = false;
+        this.facetSeq = 0;
+
         // Accelerating-delete "hold X" state
         this.holdTimer = null;
         this.holdActiveField = null;
@@ -33,6 +47,7 @@ export default class AdvancedFilters extends Component {
         this.holdAcceleration = 0.70;  // multiplicative decay per tick (snappier)
 
         this.loadTags();
+        this.loadFacets();
     }
 
     onremove() {
@@ -50,24 +65,8 @@ export default class AdvancedFilters extends Component {
     }
 
     view() {
-        const showOnlyUsed = app.forum.attribute('tryhackx-homepage-blocks.show_only_used_tags');
-        const showCount = app.forum.attribute('tryhackx-homepage-blocks.show_tag_count');
-
-        const categoryOptions = { all: transStr('tryhackx-homepage-blocks.forum.filter_all') };
-        this.categoryTags.forEach((t) => {
-            const count = t.discussionCount ? t.discussionCount() : 0;
-            if (showOnlyUsed && count === 0) return;
-            const label = showCount ? t.name() + ' (' + count + ')' : t.name();
-            categoryOptions[t.slug()] = label;
-        });
-
-        const resolutionOptions = { all: transStr('tryhackx-homepage-blocks.forum.filter_all') };
-        this.resolutionTags.forEach((t) => {
-            const count = t.discussionCount ? t.discussionCount() : 0;
-            if (showOnlyUsed && count === 0) return;
-            const label = showCount ? t.name() + ' (' + count + ')' : t.name();
-            resolutionOptions[t.slug()] = label;
-        });
+        const categoryOptions = this.tagOptions(this.categoryTags, 'category');
+        const resolutionOptions = this.tagOptions(this.resolutionTags, 'resolution');
 
         const ratingIntervalOptions = {
             '0': transStr('tryhackx-homepage-blocks.forum.interval_all'),
@@ -239,9 +238,36 @@ export default class AdvancedFilters extends Component {
         this.holdActiveField = null;
     }
 
+    /**
+     * Options for a tag list: "All (n)" plus each tag with its live count.
+     * With "show only used tags" on, zero-count tags are left out — except the
+     * one currently picked, so it stays visible (and can be switched back).
+     */
+    tagOptions(tags, facetKey) {
+        const showOnlyUsed = app.forum.attribute('tryhackx-homepage-blocks.show_only_used_tags');
+        const showCount = app.forum.attribute('tryhackx-homepage-blocks.show_tag_count');
+        const facet = this.facets && this.facets[facetKey];
+        const selected = this.filters[facetKey];
+
+        let allLabel = transStr('tryhackx-homepage-blocks.forum.filter_all');
+        if (showCount && facet) allLabel += ' (' + facet.total + ')';
+
+        const options = { all: allLabel };
+        tags.forEach((t) => {
+            const count = facet
+                ? (facet.counts[t.id()] || 0)
+                : ((t.discussionCount && t.discussionCount()) || 0);
+            if (showOnlyUsed && count === 0 && t.slug() !== selected) return;
+            options[t.slug()] = showCount ? t.name() + ' (' + count + ')' : t.name();
+        });
+
+        return options;
+    }
+
     renderSelect(labelKey, options, filterKey, customLabel) {
         const label = customLabel || transStr('tryhackx-homepage-blocks.forum.' + labelKey);
-        return m('div', { className: 'AdvancedFilters-field' }, [
+        const isFacet = filterKey === 'category' || filterKey === 'resolution';
+        return m('div', { className: 'AdvancedFilters-field' + (isFacet && this.facetsLoading ? ' AdvancedFilters-field--updating' : '') }, [
             m('label', label + ':'),
             m(
                 'select',
@@ -268,7 +294,22 @@ export default class AdvancedFilters extends Component {
     }
 
     loadTags() {
-        const allTags = app.store.all('tags');
+        this.classifyTags(app.store.all('tags'));
+
+        // The forum payload only preloads SOME tags (Tags caps the secondary ones), so
+        // e.g. "HDR" could be missing from the Resolution list although it has
+        // discussions. Fetch the complete list once (cached by Tags' TagListState).
+        if (app.tagList && typeof app.tagList.load === 'function') {
+            app.tagList.load(['parent']).then(() => {
+                this.classifyTags(app.store.all('tags'));
+                m.redraw();
+            }).catch(() => {});
+        }
+    }
+
+    classifyTags(allTags) {
+        this.categoryTags = [];
+        this.resolutionTags = [];
 
         // Auto-detect: Primary tags (position set) → Category, Secondary (no position) → Resolution
         allTags.forEach((t) => {
@@ -319,9 +360,11 @@ export default class AdvancedFilters extends Component {
     async applyFilters() {
         app.homepageFilters = this.filters;
 
-        // Pre-flight limitera: tylko gdy 'search' jest faktycznie limitowany.
+        // Pre-flight limitera: tylko gdy 'search' jest faktycznie limitowany. Przy
+        // ciężkim wyszukiwaniu (tytuł/użytkownik) żądanie liczników też jest
+        // limitowane — prosimy wtedy o drugi grace, by nie płacić podwójnie.
         if (guardActiveFor('search')) {
-            const result = await preflightCheck('search');
+            const result = await preflightCheck('search', { facets: this.isHeavySearch() });
             if (!result.ok) {
                 // Tymczasowa blokada IP — pokaż odliczanie. Inny błąd — wyjdź cicho.
                 // W obu wypadkach nie wykonujemy zapytania.
@@ -335,8 +378,16 @@ export default class AdvancedFilters extends Component {
         this.runQuery();
     }
 
-    runQuery() {
-        // Build filter object for Flarum API
+    isHeavySearch() {
+        const long = (v) => !!v && v.trim().length >= 3;
+        return long(this.filters.title) || long(this.filters.user);
+    }
+
+    /**
+     * Non-tag filters exactly as sent to the API (shared by the list and the
+     * facet counts, so both always describe the same search).
+     */
+    baseFilter() {
         const filter = {};
 
         // Title/User search: custom LIKE '%text%' filters. Min. 3 znaki — krótsze są
@@ -351,14 +402,6 @@ export default class AdvancedFilters extends Component {
             filter.user = this.filters.user;
         }
 
-        // Tag filters: combine category + resolution
-        const tags = [];
-        if (this.filters.category !== 'all') tags.push(this.filters.category);
-        if (this.filters.resolution !== 'all') tags.push(this.filters.resolution);
-        if (tags.length) {
-            filter.tag = tags;
-        }
-
         // Rating interval: custom RatingFilter — tylko gdy topic-rating aktywne.
         const hasRating = typeof app.forum.attribute('tryhackxHomepageHasRating') !== 'undefined';
         if (hasRating && this.filters.ratingInterval !== '0') {
@@ -368,6 +411,61 @@ export default class AdvancedFilters extends Component {
         // Date interval: custom DateIntervalFilter
         if (this.filters.dateInterval !== '0') {
             filter.dateInterval = this.filters.dateInterval;
+        }
+
+        return filter;
+    }
+
+    facetParams() {
+        return {
+            filter: this.baseFilter(),
+            category: this.picked('category') || 'all',
+            resolution: this.picked('resolution') || 'all',
+        };
+    }
+
+    /** The tag slug picked in a list, or null for "All" (or an empty value). */
+    picked(filterKey) {
+        const value = this.filters[filterKey];
+        return value && value !== 'all' ? value : null;
+    }
+
+    /**
+     * Fetch the live Category/Resolution counts for the current filters. Only the
+     * newest response is applied (a slow earlier one can't overwrite it); on any
+     * error the previous counts simply stay.
+     */
+    loadFacets() {
+        const params = this.facetParams();
+        const key = JSON.stringify(params);
+        const seq = ++this.facetSeq;
+        this.facetsLoading = true;
+
+        return app.request({
+            method: 'GET',
+            url: app.forum.attribute('apiUrl') + '/tryhackx/homepage/facets',
+            params,
+            // Background refresh: never pop an alert for it.
+            errorHandler: () => {},
+        }).then((data) => {
+            if (seq !== this.facetSeq || !data || !data.category || !data.resolution) return;
+            this.facets = data;
+            app.homepageFacets = { key, data };
+        }).catch(() => {}).finally(() => {
+            if (seq !== this.facetSeq) return;
+            this.facetsLoading = false;
+            m.redraw();
+        });
+    }
+
+    runQuery() {
+        // Build filter object for Flarum API
+        const filter = this.baseFilter();
+
+        // Tag filters: combine category + resolution
+        const tags = [this.picked('category'), this.picked('resolution')].filter(Boolean);
+        if (tags.length) {
+            filter.tag = tags;
         }
 
         // Sort mapping: UI index → { desc: sortKey, asc: sortKey }
@@ -389,6 +487,7 @@ export default class AdvancedFilters extends Component {
 
         // Zabezpieczenie: jeśli zapisany wybór dotyczy sortowania z rozszerzenia,
         // którego nie ma, wróć do daty utworzenia (inaczej API zwróci błąd).
+        const hasRating = typeof app.forum.attribute('tryhackxHomepageHasRating') !== 'undefined';
         const hasViews = typeof app.forum.attribute('tryhackxHomepageHasViews') !== 'undefined';
         const hasMagnet = typeof app.forum.attribute('magnetClickTracking') !== 'undefined';
         let sortBy = this.filters.sortBy;
@@ -414,5 +513,8 @@ export default class AdvancedFilters extends Component {
         if (app.discussions) {
             app.discussions.refreshParams(params, 1);
         }
+
+        // Recount the Category/Resolution lists for the new filters.
+        this.loadFacets();
     }
 }

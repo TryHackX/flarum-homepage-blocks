@@ -8,6 +8,7 @@ use Flarum\Discussion\Search\DiscussionSearcher;
 use Flarum\Search\Database\DatabaseSearchDriver;
 use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Api\Controller\CheckPointsController;
+use TryHackX\HomepageBlocks\Api\Controller\FacetsController;
 use TryHackX\HomepageBlocks\Api\Controller\TrackerStatsController;
 use TryHackX\HomepageBlocks\Api\Controller\WhitelistScanController;
 use TryHackX\HomepageBlocks\Api\Controller\WhitelistSecretController;
@@ -51,6 +52,8 @@ return [
     (new Extend\Routes('api'))
         ->get('/tryhackx/homepage/stats', 'tryhackx.homepage.stats', TrackerStatsController::class)
         ->post('/tryhackx/homepage/points/check', 'tryhackx.homepage.points.check', CheckPointsController::class)
+        // Live Category / Resolution counts for the current Advanced Filters (read-only → GET).
+        ->get('/tryhackx/homepage/facets', 'tryhackx.homepage.facets', FacetsController::class)
         // Tracker whitelist sync (admin-only controllers, assertAdmin inside).
         ->post('/tryhackx/homepage/whitelist/test', 'tryhackx.homepage.whitelist.test', WhitelistTestController::class)
         ->post('/tryhackx/homepage/whitelist/scan', 'tryhackx.homepage.whitelist.scan', WhitelistScanController::class)
@@ -134,6 +137,10 @@ return [
         // serwerowe (URL-e mogą zdradzać prywatny IP:port).
         ->serializeToForum('tryhackx-homepage-blocks.external_stats_max_time', 'tryhackx-homepage-blocks.external_stats_max_time')
         ->serializeToForum('tryhackx-homepage-blocks.theme_mode', 'tryhackx-homepage-blocks.theme_mode')
+        // Wygląd bloków: 'fitted' (wtapia się w forum, domyślnie) lub 'original' (własny styl kart).
+        ->serializeToForum('tryhackx-homepage-blocks.style', 'tryhackx-homepage-blocks.style', function ($value) {
+            return $value === 'original' ? 'original' : 'fitted';
+        })
         ->serializeToForum('tryhackx-homepage-blocks.category_label', 'tryhackx-homepage-blocks.category_label')
         ->serializeToForum('tryhackx-homepage-blocks.resolution_label', 'tryhackx-homepage-blocks.resolution_label'),
 

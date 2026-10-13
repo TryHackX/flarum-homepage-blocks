@@ -7,62 +7,35 @@ import HomepageMainBlock from './components/HomepageMainBlock';
 import AdvancedFilters from './components/AdvancedFilters';
 
 app.initializers.add('tryhackx-homepage-blocks', () => {
-    // ── Theme detection and application ──
+    // ── Theme ──
+    // "Auto" needs no JS: the stylesheet follows Flarum's own `data-theme` on
+    // <html>, which Flarum switches live (header theme switcher, user preference,
+    // OS change). Only a palette FORCED by the admin ("Light" / "Dark") is applied
+    // here, as a class on <html> that outranks the [data-theme] rules.
     function applyTheme() {
         try {
-            if (!document || !document.body) return;
-
-            // Read setting; default to 'light' if app.forum is not yet available
-            let mode = 'light';
+            let mode = 'auto';
             try {
                 if (app.forum) {
                     mode = app.forum.attribute('tryhackx-homepage-blocks.theme_mode') || 'auto';
                 }
             } catch (e) {}
 
-            let theme;
-            if (mode === 'dark') {
-                theme = 'dark';
-            } else if (mode === 'light') {
-                theme = 'light';
-            } else {
-                // Auto: detect from OS/browser preference or Flarum/theme dark mode
-                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-                const htmlEl = document.documentElement;
-                const bodyEl = document.body;
-                const htmlDark = htmlEl && (htmlEl.getAttribute('data-theme') === 'dark' || htmlEl.classList.contains('dark'));
-                const bodyDark = bodyEl && (bodyEl.classList.contains('dark') || bodyEl.getAttribute('data-flarum-theme') === 'dark');
-                theme = (prefersDark || htmlDark || bodyDark) ? 'dark' : 'light';
+            const root = document.documentElement;
+            root.classList.remove('HomepageBlocks--dark', 'HomepageBlocks--light');
+            if (mode === 'dark' || mode === 'light') {
+                root.classList.add('HomepageBlocks--' + mode);
             }
-
-            document.body.classList.remove('HomepageBlocks--dark', 'HomepageBlocks--light');
-            document.body.classList.add('HomepageBlocks--' + theme);
         } catch (e) {
             // Never let theme errors break the rest of the extension
             console.warn('[HomepageBlocks] applyTheme failed:', e);
         }
     }
 
-    // Apply immediately (may default to light if app.forum not ready yet)
+    // Initializers run before the forum payload is loaded, so apply (again) once
+    // the index page — the only page with the blocks — has rendered.
     applyTheme();
-
-    // Reapply when IndexPage renders (app.forum is guaranteed to be available)
-    extend(IndexPage.prototype, 'oncreate', function () {
-        applyTheme();
-    });
-
-    // Listen for OS theme changes when in auto mode
-    if (window.matchMedia) {
-        try {
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
-                try {
-                    if (app.forum && (app.forum.attribute('tryhackx-homepage-blocks.theme_mode') || 'auto') === 'auto') {
-                        applyTheme();
-                    }
-                } catch (e) {}
-            });
-        } catch (e) {}
-    }
+    extend(IndexPage.prototype, 'oncreate', applyTheme);
 
     // Extend Flarum's sort map with our custom sort columns
     extend(DiscussionListState.prototype, 'sortMap', function (map) {
@@ -142,6 +115,8 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
     extend(IndexPage.prototype, 'contentItems', function (items) {
         const section1Enabled = app.forum.attribute('tryhackx-homepage-blocks.section1_enabled') !== false;
         const section2Enabled = app.forum.attribute('tryhackx-homepage-blocks.section2_enabled') !== false;
+        // Visual style (admin): "fitted" blends in, "original" is the card design.
+        const styleClass = app.forum.attribute('tryhackx-homepage-blocks.style') === 'original' ? 'HomepageSection--original' : '';
 
         // Section 1: tracker info, stats, custom links
         if (section1Enabled) {
@@ -154,6 +129,7 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
                 'homepage-main-block',
                 m(CollapsibleSection, {
                     title: section1Title,
+                    className: styleClass,
                     defaultCollapsed: section1Collapsed,
                     onToggle: (collapsed) => {
                         setCollapsed(LS_KEY_S1, collapsed);
@@ -173,7 +149,7 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             items.add(
                 'homepage-section-header',
                 m('div', {
-                    className: 'HomepageSection HomepageSection--listHeader' + (section2Collapsed ? ' HomepageSection--collapsed' : ''),
+                    className: 'HomepageSection HomepageSection--listHeader' + (styleClass ? ' ' + styleClass : '') + (section2Collapsed ? ' HomepageSection--collapsed' : ''),
                 }, [
                     m('div', {
                         className: 'HomepageSection-header',

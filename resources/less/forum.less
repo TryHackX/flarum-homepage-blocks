@@ -1,27 +1,137 @@
 // ========================================
 // TryHackX Homepage Blocks - Forum Styles
 // ========================================
-// Light theme by default. Dark theme applied via body.HomepageBlocks--dark class (set by JS).
+// Colours come in two layers of CSS custom properties:
+//
+//  1. Scheme (--hbs-*, on <html>): the forum's base colours for the active light
+//     or dark mode.
+//     - Theme mode "Auto" (default): Flarum 2's own theme variables, switched by
+//       the `data-theme="light|dark|light-hc|dark-hc"` attribute Flarum keeps on
+//       <html> — live, with the header theme switcher / user preference / OS.
+//     - "Light" / "Dark" (admin `theme_mode`): the JS puts HomepageBlocks--light
+//       or --dark on <html>, which pins the forum's light or dark palette (core's
+//       LESS variables, so still the forum's own colours).
+//  2. Style (--hb-*, on each .HomepageSection): what the rules below use.
+//     "Fitted" (default) blends into the forum; "Original" (admin `style`,
+//     .HomepageSection--original) is this extension's own card design — built
+//     from the same scheme tokens, so it follows light / dark too.
 
-// ── Light theme LESS variables ──
-@hb-header-bg: #e4e7ec;
-@hb-header-hover: #d9dce3;
-@hb-border: #d1d5db;
-@hb-text: #1f2937;
-@hb-text-muted: #6b7280;
-@hb-accent: #e74c3c;
-@hb-accent-hover: #c0392b;
-@hb-accent-shadow: rgba(231, 76, 60, 0.2);
-@hb-divider: #d1d5db;
-@hb-input-bg: #ffffff;
-@hb-input-border: #d1d5db;
-@hb-section-bg: rgba(240, 242, 245, 0.95);
-@hb-filter-bg: rgba(240, 242, 245, 0.90);
-@hb-toggle: #3b82f6;
-@hb-url: #2563eb;
-@hb-stat-value: #1f2937;
-@hb-btn-text: #1f2937;
-@hb-placeholder: rgba(107, 114, 128, 0.6);
+@hb-shadow-soft: 0 1px 2px;
+
+// Text colour on the primary colour (YIQ, like core's root.less). Pre-computed:
+// core notes if() must not get nested parentheses.
+@hb-primary-yiq: red(@primary-color) * 299 + green(@primary-color) * 587 + blue(@primary-color) * 114;
+
+.hb-fixed-scheme(@body, @control, @heading, @text, @muted, @muted-more, @shadow) {
+    --hbs-body: @body;
+    --hbs-control: @control;
+    --hbs-mix: mix(@control, @body, 50%);
+    --hbs-heading: @heading;
+    --hbs-text: @text;
+    --hbs-muted: @muted;
+    --hbs-muted-more: @muted-more;
+    --hbs-shadow: @shadow;
+    --hbs-primary: @primary-color;
+    --hbs-button-color: if(@hb-primary-yiq >= 128000, @text-on-light, @text-on-dark);
+}
+
+// ── Scheme: auto, light (also the fallback until Flarum sets data-theme) ──
+:root,
+[data-theme^=light] {
+    --hbs-body: var(--body-bg, #fff);
+    --hbs-input: var(--body-bg, #fff);
+    --hbs-control: var(--control-bg, #e7edf3);
+    --hbs-control-hover: var(--control-bg-shaded, #dbe3ec);
+    --hbs-edge: var(--control-bg-shaded, #dbe3ec);
+    --hbs-mix: var(--control-body-bg-mix, #f3f6f9);
+    --hbs-heading: var(--heading-color, #111);
+    --hbs-text: var(--text-color, #111);
+    --hbs-muted: var(--muted-color, #667c99);
+    --hbs-muted-more: var(--muted-more-color, #aaa);
+    --hbs-shadow: var(--shadow-color, rgba(0, 0, 0, 0.35));
+    --hbs-primary: var(--primary-color, #536f90);
+    --hbs-button-color: var(--button-primary-color, #fff);
+    --hbs-toggle: #3b82f6;
+    --hbs-url: #2563eb;
+    --hbs-clear: #e74c3c;
+    --hbs-clear-hover: #c0392b;
+    --hbs-clear-rgb: 231, 76, 60;
+}
+
+// ── Scheme: auto, dark ──
+[data-theme^=dark] {
+    --hbs-body: var(--body-bg);
+    --hbs-input: var(--body-bg-shaded);
+    --hbs-control: var(--control-bg);
+    --hbs-control-hover: var(--control-bg-light);
+    --hbs-edge: var(--control-bg-light);
+    --hbs-mix: var(--control-body-bg-mix);
+    --hbs-heading: var(--heading-color);
+    --hbs-text: var(--text-color);
+    --hbs-muted: var(--muted-color);
+    --hbs-muted-more: var(--muted-more-color);
+    --hbs-shadow: var(--shadow-color);
+    --hbs-primary: var(--primary-color);
+    --hbs-button-color: var(--button-primary-color, #fff);
+    --hbs-toggle: #4a9eff;
+    --hbs-url: #7eb8da;
+    --hbs-clear: #ff6b6b;
+    --hbs-clear-hover: #ff4949;
+    --hbs-clear-rgb: 255, 107, 107;
+}
+
+// ── Scheme: forced "Light" (admin) — the forum's light palette ──
+html.HomepageBlocks--light {
+    .hb-fixed-scheme(@body-bg-light, @control-bg-light, @heading-color-light, @text-color-light,
+        @muted-color-light, @muted-more-color-light, @shadow-color-light);
+    --hbs-input: @body-bg-light;
+    --hbs-control-hover: darken(@control-bg-light, 4%);
+    --hbs-edge: darken(@control-bg-light, 4%);
+    --hbs-toggle: #3b82f6;
+    --hbs-url: #2563eb;
+    --hbs-clear: #e74c3c;
+    --hbs-clear-hover: #c0392b;
+    --hbs-clear-rgb: 231, 76, 60;
+}
+
+// ── Scheme: forced "Dark" (admin) — the forum's dark palette ──
+html.HomepageBlocks--dark {
+    .hb-fixed-scheme(@body-bg-dark, @control-bg-dark, @heading-color-dark, @text-color-dark,
+        @muted-color-dark, @muted-more-color-dark, @shadow-color-dark);
+    --hbs-input: darken(@body-bg-dark, 3%);
+    --hbs-control-hover: lighten(@control-bg-dark, 3%);
+    --hbs-edge: lighten(@control-bg-dark, 3%);
+    --hbs-toggle: #4a9eff;
+    --hbs-url: #7eb8da;
+    --hbs-clear: #ff6b6b;
+    --hbs-clear-hover: #ff4949;
+    --hbs-clear-rgb: 255, 107, 107;
+}
+
+// ── Style tokens: "Fitted" (default) — blends into the forum ──
+.HomepageSection {
+    --hb-accent: #e74c3c;
+    --hb-accent-hover: #c0392b;
+    --hb-accent-shadow: rgba(231, 76, 60, 0.2);
+    --hb-header-bg: var(--hbs-control);
+    --hb-header-hover: var(--hbs-control-hover);
+    --hb-border: var(--hbs-edge);
+    --hb-divider: var(--hbs-edge);
+    --hb-section-bg: var(--hbs-mix);
+    --hb-filter-bg: var(--hbs-mix);
+    --hb-input-bg: var(--hbs-input);
+    --hb-input-border: var(--hbs-edge);
+    --hb-text: var(--hbs-heading);
+    --hb-text-muted: var(--hbs-muted);
+    --hb-stat-value: var(--hbs-heading);
+    --hb-btn-text: var(--hbs-heading);
+    --hb-placeholder: var(--hbs-muted-more);
+    --hb-toggle: var(--hbs-toggle);
+    --hb-url: var(--hbs-url);
+    --hb-clear: var(--hbs-clear);
+    --hb-clear-hover: var(--hbs-clear-hover);
+    --hb-clear-rgb: var(--hbs-clear-rgb);
+}
 
 // ========================================
 // Collapsible Section
@@ -37,14 +147,14 @@
         justify-content: space-between;
         align-items: center;
         padding: 10px 15px;
-        background: @hb-header-bg;
+        background: var(--hb-header-bg);
         cursor: pointer;
         user-select: none;
-        border-bottom: 1px solid @hb-border;
+        border-bottom: 1px solid var(--hb-border);
         transition: background 0.2s ease;
 
         &:hover {
-            background: @hb-header-hover;
+            background: var(--hb-header-hover);
         }
     }
 
@@ -52,19 +162,19 @@
         font-size: 12px;
         font-weight: 700;
         text-transform: uppercase;
-        color: @hb-text;
+        color: var(--hb-text);
         letter-spacing: 0.5px;
     }
 
     &-toggle {
-        color: @hb-toggle;
+        color: var(--hb-toggle);
         font-size: 12px;
         transition: transform 0.2s ease;
     }
 
     &-body {
-        background: @hb-section-bg;
-        border: 1px solid @hb-border;
+        background: var(--hb-section-bg);
+        border: 1px solid var(--hb-border);
         border-top: none;
         padding: 20px;
     }
@@ -86,7 +196,7 @@
 .HomepageMainBlock {
     &-divider {
         height: 1px;
-        background: linear-gradient(to right, transparent, @hb-divider, transparent);
+        background: linear-gradient(to right, transparent, var(--hb-divider), transparent);
         margin: 18px 0;
     }
 
@@ -107,12 +217,12 @@
 
     &-message {
         font-size: 14px;
-        color: @hb-text;
+        color: var(--hb-text);
     }
 
     &-subMessage {
         font-size: 11px;
-        color: @hb-text-muted;
+        color: var(--hb-text-muted);
         margin-bottom: 8px;
     }
 
@@ -123,21 +233,21 @@
     &-url {
         font-family: 'Consolas', 'Monaco', monospace;
         font-size: 12px;
-        color: @hb-url;
+        color: var(--hb-url);
         padding: 2px 0;
     }
 
     &-copyBtn {
-        background: @hb-header-bg !important;
-        color: @hb-btn-text !important;
-        border: 1px solid @hb-border !important;
+        background: var(--hb-header-bg) !important;
+        color: var(--hb-btn-text) !important;
+        border: 1px solid var(--hb-border) !important;
         padding: 8px 30px !important;
         border-radius: 4px !important;
         font-size: 13px;
         transition: all 0.2s ease;
 
         &:hover {
-            border-color: @hb-accent !important;
+            border-color: var(--hb-accent) !important;
         }
     }
 }
@@ -151,7 +261,7 @@
 
     &-title {
         font-size: 14px;
-        color: @hb-text;
+        color: var(--hb-text);
     }
 
     &-loading {
@@ -159,7 +269,7 @@
         align-items: center;
         justify-content: center;
         gap: 8px;
-        color: @hb-text-muted;
+        color: var(--hb-text-muted);
         font-size: 13px;
         padding: 10px 0;
 
@@ -169,7 +279,7 @@
     }
 
     &-error {
-        color: @hb-accent;
+        color: var(--hb-accent);
         font-size: 13px;
         padding: 10px 0;
     }
@@ -195,7 +305,7 @@
 
         i {
             font-size: 18px;
-            color: @hb-accent;
+            color: var(--hb-accent);
             margin-bottom: 4px;
         }
     }
@@ -203,7 +313,7 @@
     &-value {
         font-size: 18px;
         font-weight: 700;
-        color: @hb-stat-value;
+        color: var(--hb-stat-value);
         // Wartość ma zostać w jednej linii (Uptime bywa szeroki) — zamiast łamać
         // liczbę w połowie, to CAŁY kafelek zawinie się do kolejnego wiersza.
         white-space: nowrap;
@@ -211,14 +321,14 @@
 
     &-label {
         font-size: 11px;
-        color: @hb-text-muted;
+        color: var(--hb-text-muted);
         text-transform: uppercase;
     }
 
     &-sectionLabel {
         font-size: 11px;
         font-weight: 600;
-        color: @hb-text-muted;
+        color: var(--hb-text-muted);
         text-transform: uppercase;
         letter-spacing: 1px;
         margin: 8px 0 4px;
@@ -226,7 +336,7 @@
 
     &-divider {
         height: 1px;
-        background: linear-gradient(to right, transparent, @hb-divider, transparent);
+        background: linear-gradient(to right, transparent, var(--hb-divider), transparent);
         margin: 10px 40px;
     }
 }
@@ -236,8 +346,8 @@
 // ========================================
 
 .AdvancedFilters {
-    background: @hb-filter-bg;
-    border: 1px solid @hb-border;
+    background: var(--hb-filter-bg);
+    border: 1px solid var(--hb-border);
     border-top: none;
     padding: 12px 15px;
 
@@ -262,16 +372,16 @@
         label {
             font-size: 11px;
             font-weight: 600;
-            color: @hb-text-muted;
+            color: var(--hb-text-muted);
             text-transform: uppercase;
             white-space: nowrap;
         }
 
         .FormControl,
         select {
-            background: @hb-input-bg;
-            border: 1px solid @hb-input-border;
-            color: @hb-text;
+            background: var(--hb-input-bg);
+            border: 1px solid var(--hb-input-border);
+            color: var(--hb-text);
             padding: 6px 10px;
             font-size: 12px;
             border-radius: 3px;
@@ -280,21 +390,21 @@
             transition: border-color 0.2s ease;
 
             &:focus {
-                border-color: @hb-accent;
+                border-color: var(--hb-accent);
                 outline: none;
-                box-shadow: 0 0 0 2px @hb-accent-shadow;
+                box-shadow: 0 0 0 2px var(--hb-accent-shadow);
             }
 
             &::placeholder {
-                color: @hb-placeholder;
+                color: var(--hb-placeholder);
             }
         }
 
         .Select {
             .Select-input {
-                background: @hb-input-bg;
-                border: 1px solid @hb-input-border;
-                color: @hb-text;
+                background: var(--hb-input-bg);
+                border: 1px solid var(--hb-input-border);
+                color: var(--hb-text);
                 font-size: 12px;
                 border-radius: 3px;
                 min-height: 32px;
@@ -305,6 +415,15 @@
             margin-left: auto;
             flex: none;
             min-width: 120px;
+        }
+
+        // Category / Resolution while their live counts are being refreshed.
+        &--updating select {
+            opacity: 0.7;
+        }
+
+        select {
+            transition: border-color 0.2s ease, opacity 0.15s ease;
         }
     }
 
@@ -337,12 +456,12 @@
         padding: 0;
         border: none;
         background: transparent;
-        color: @hb-accent;
+        color: var(--hb-clear);
         cursor: pointer;
         border-radius: 50%;
         font-size: 11px;
         line-height: 1;
-        text-shadow: 0 0 4px rgba(231, 76, 60, 0.35);
+        text-shadow: 0 0 4px ~"rgba(var(--hb-clear-rgb), 0.35)";
         transition: color 0.15s ease, text-shadow 0.15s ease,
                     background 0.15s ease, transform 0.05s ease;
 
@@ -351,21 +470,21 @@
         }
 
         &:hover {
-            color: @hb-accent-hover;
+            color: var(--hb-clear-hover);
             text-shadow:
-                0 0 6px rgba(231, 76, 60, 0.85),
-                0 0 12px rgba(231, 76, 60, 0.55),
-                0 0 20px rgba(231, 76, 60, 0.35);
-            background: rgba(231, 76, 60, 0.12);
+                0 0 6px ~"rgba(var(--hb-clear-rgb), 0.85)",
+                0 0 12px ~"rgba(var(--hb-clear-rgb), 0.55)",
+                0 0 20px ~"rgba(var(--hb-clear-rgb), 0.35)";
+            background: ~"rgba(var(--hb-clear-rgb), 0.12)";
         }
 
         &:active {
             transform: translateY(-50%) scale(0.9);
-            background: rgba(231, 76, 60, 0.20);
+            background: ~"rgba(var(--hb-clear-rgb), 0.20)";
             text-shadow:
-                0 0 8px rgba(231, 76, 60, 1),
-                0 0 16px rgba(231, 76, 60, 0.75),
-                0 0 26px rgba(231, 76, 60, 0.45);
+                0 0 8px ~"rgba(var(--hb-clear-rgb), 1)",
+                0 0 16px ~"rgba(var(--hb-clear-rgb), 0.75)",
+                0 0 26px ~"rgba(var(--hb-clear-rgb), 0.45)";
         }
 
         &:focus {
@@ -375,118 +494,182 @@
 }
 
 // ========================================
-// Dark Theme Overrides
+// Style: "Original" — this extension's own card design
 // ========================================
+// Rounded cards with a soft shadow, a header tinted with the forum's primary
+// colour and an accent bar, round toggle, stat tiles with icon chips, pill-shaped
+// tracker URLs and inputs that light up in the primary colour on focus. Every
+// colour is mixed from the scheme tokens above (no fixed palette), so it fits any
+// Flarum 2 theme in light, dark and high-contrast mode.
 
-body.HomepageBlocks--dark {
+.HomepageSection--original {
+    --hbo-tint: ~"color-mix(in srgb, var(--hbs-primary) 10%, var(--hbs-body))";
+    --hbo-tint-strong: ~"color-mix(in srgb, var(--hbs-primary) 20%, var(--hbs-body))";
+    --hbo-tint-soft: ~"color-mix(in srgb, var(--hbs-primary) 5%, var(--hbs-body))";
+    --hbo-edge: ~"color-mix(in srgb, var(--hbs-primary) 22%, var(--hbs-edge))";
+    --hbo-edge-soft: ~"color-mix(in srgb, var(--hbs-primary) 12%, var(--hbs-edge))";
+    --hbo-ring: ~"color-mix(in srgb, var(--hbs-primary) 28%, transparent)";
+    --hbo-chip: ~"color-mix(in srgb, var(--hb-accent) 14%, transparent)";
+
+    --hb-section-bg: var(--hbs-body);
+    --hb-filter-bg: var(--hbs-body);
+    --hb-input-bg: var(--hbs-control);
+    --hb-input-border: transparent;
+    --hb-border: var(--hbo-edge);
+    --hb-divider: var(--hbo-edge);
+    --hb-toggle: var(--hbs-primary);
+    --hb-accent-shadow: var(--hbo-ring);
+
+    margin-bottom: 12px;
+    border: 1px solid var(--hbo-edge);
+    border-radius: 12px;
+    background: var(--hbs-body);
+    box-shadow: @hb-shadow-soft ~"color-mix(in srgb, var(--hbs-shadow) 35%, transparent)",
+        0 12px 28px -18px var(--hbs-shadow);
+
+    &.HomepageSection--listHeader {
+        margin-top: 8px;
+        margin-bottom: 12px;
+    }
+
     .HomepageSection-header {
-        background: #16213e;
-        border-bottom-color: #0f3460;
+        position: relative;
+        padding: 12px 16px 12px 20px;
+        background: linear-gradient(120deg, var(--hbo-tint-strong), var(--hbo-tint) 55%, var(--hbo-tint-soft));
+        border-bottom: 1px solid var(--hbo-edge-soft);
+        transition: background-color 0.2s ease, filter 0.2s ease;
+
+        // Accent bar in the forum's primary colour.
+        &::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            bottom: 10px;
+            left: 0;
+            width: 4px;
+            border-radius: 0 4px 4px 0;
+            background: var(--hbs-primary);
+        }
 
         &:hover {
-            background: #1a2948;
+            background: linear-gradient(120deg, var(--hbo-tint-strong), var(--hbo-tint-strong) 55%, var(--hbo-tint));
         }
     }
 
+    &.HomepageSection--collapsed .HomepageSection-header {
+        border-bottom-color: transparent;
+    }
+
     .HomepageSection-title {
-        color: #e0e0e0;
+        color: var(--hbs-heading);
+        font-size: 12px;
+        letter-spacing: 0.08em;
     }
 
     .HomepageSection-toggle {
-        color: #4a9eff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--hbo-ring);
+        color: var(--hbs-primary);
+        font-size: 11px;
     }
 
     .HomepageSection-body {
-        background: rgba(26, 26, 46, 0.95);
-        border-color: #0f3460;
+        border: none;
+        padding: 22px 20px;
     }
 
     .HomepageMainBlock-divider {
-        background: linear-gradient(to right, transparent, #0f3460, transparent);
+        margin: 20px 0;
     }
 
-    .TrackerInfo-message {
-        color: #e0e0e0;
-    }
-
-    .TrackerInfo-subMessage {
-        color: #8892a0;
-    }
-
+    // Tracker info: URLs as monospace pills, copy button in the primary colour.
     .TrackerInfo-url {
-        color: #7eb8da;
+        display: inline-block;
+        margin: 3px 0;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: var(--hbs-control);
     }
 
     .TrackerInfo-copyBtn {
-        background: #16213e !important;
-        color: #e0e0e0 !important;
-        border-color: #0f3460 !important;
+        background: var(--hbs-primary) !important;
+        color: var(--hbs-button-color) !important;
+        border: none !important;
+        border-radius: 999px !important;
+        padding: 8px 26px !important;
+        box-shadow: 0 6px 16px -10px var(--hbs-primary);
+
+        &:hover {
+            filter: brightness(1.08);
+        }
     }
 
-    .TrackerStats-title {
-        color: #e0e0e0;
+    // Stats: tiles with an icon chip.
+    .TrackerStats-grid {
+        gap: 12px;
     }
 
-    .TrackerStats-loading {
-        color: #8892a0;
-    }
+    .TrackerStats-item {
+        min-width: 112px;
+        padding: 12px 14px 10px;
+        border: 1px solid var(--hbo-edge-soft);
+        border-radius: 12px;
+        background: var(--hbo-tint-soft);
+        transition: transform 0.15s ease, border-color 0.15s ease;
 
-    .TrackerStats-value {
-        color: #ffffff;
+        &:hover {
+            transform: translateY(-2px);
+            border-color: var(--hbo-edge);
+        }
+
+        i {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            margin-bottom: 6px;
+            border-radius: 50%;
+            background: var(--hbo-chip);
+            font-size: 15px;
+        }
     }
 
     .TrackerStats-label,
     .TrackerStats-sectionLabel {
-        color: #8892a0;
+        letter-spacing: 0.06em;
     }
 
-    .TrackerStats-divider {
-        background: linear-gradient(to right, transparent, #0f3460, transparent);
-    }
-
+    // Filters: soft filled inputs, primary focus ring.
     .AdvancedFilters {
-        background: rgba(26, 26, 46, 0.90);
-        border-color: #0f3460;
+        border: none;
+        padding: 14px 18px 18px;
     }
 
     .AdvancedFilters-field {
         label {
-            color: #8892a0;
+            font-size: 10.5px;
+            letter-spacing: 0.06em;
         }
 
         .FormControl,
         select {
-            background: #1a1a2e;
-            border-color: #2a3a5e;
-            color: #e0e0e0;
+            min-height: 34px;
+            border-radius: 8px;
 
-            &::placeholder {
-                color: rgba(136, 146, 160, 0.6);
+            &:hover {
+                border-color: var(--hbo-edge-soft);
             }
-        }
 
-        .Select .Select-input {
-            background: #1a1a2e;
-            border-color: #2a3a5e;
-            color: #e0e0e0;
-        }
-    }
-
-    .AdvancedFilters-clear {
-        color: #ff6b6b;
-        text-shadow: 0 0 6px rgba(255, 107, 107, 0.45);
-
-        &:hover {
-            color: #ff4949;
-            text-shadow:
-                0 0 8px rgba(255, 107, 107, 0.95),
-                0 0 16px rgba(255, 107, 107, 0.65),
-                0 0 24px rgba(255, 107, 107, 0.35);
-            background: rgba(255, 107, 107, 0.18);
-        }
-
-        &:active {
-            background: rgba(255, 107, 107, 0.28);
+            &:focus {
+                border-color: var(--hbs-primary);
+                box-shadow: 0 0 0 3px var(--hbo-ring);
+            }
         }
     }
 }
@@ -502,6 +685,11 @@ body.HomepageBlocks--dark {
 
     .TrackerStats-item {
         min-width: 70px;
+    }
+
+    .HomepageSection--original .TrackerStats-item {
+        min-width: 96px;
+        padding: 10px 10px 8px;
     }
 
     .AdvancedFilters-row {
