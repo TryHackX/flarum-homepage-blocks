@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-10-14
+
+> **More filters** — a collapsible panel of extra filters, a movies / series switch, new
+> sorts and a metadata index read from the posts. **PHP + frontend + locales + one migration**
+> (`php flarum migrate`). Everything is opt-in: with the new *Advanced filters* switch off
+> (default) the forum behaves exactly as before.
+
+### Added
+- **More filters panel** — a *More filters* button at the bottom right of the filter bar
+  opens a panel (collapsed on every visit unless the admin sets *expanded by default*;
+  grouped into *Release*, *Ratings & popularity* and *Dates*). Each field is a from – to
+  range; a badge shows how many are active and *Clear* resets them; an invalid range
+  (*from* > *to*, not a number) is flagged and keeps the last results instead of being sent.
+  Typing is debounced like the title search. Mobile: full-width controls, 16 px inputs.
+  Every filter has its own admin switch:
+  - from the posts (metadata index): **size** (MB / GB / TB), **release year** (a series or
+    trilogy matches when its years overlap), **running time**, **seasons**, **episodes**,
+    **IMDb** and **Filmweb** rating;
+  - everything the list can be sorted by: **Steam DB rating** (%), **average rating**,
+    **number of ratings**, **last rated** *(topic-rating)*, **views** *(discussion-views)*,
+    **replies**, **magnet clicks** (all magnets / top magnet), **last magnet click**,
+    **with / without a magnet link** *(magnet-link)*, **date started**, **last activity**
+    (dates follow the visitor's time zone).
+- **Type: All / Movies / Series** — a switch next to *More filters* (or, per setting, a list
+  in the main row or a field in the panel) with live counts. Series are recognised by a kind
+  field (`Serial: TV Series`), seasons / episodes values, `S01E01` markers or admin-picked
+  *series tags*; discussions that aren't releases at all are neither movies nor series.
+- **Sorts by size and by release year** (unknown values always last).
+- **Metadata index** (`homepage_discussion_meta` table) — release data read once per
+  discussion from its title and first post (as plain text: BBCode, Markdown and literal
+  markup all work): size from the magnet's exact `xl=` length, a `Size:` line or the title;
+  binary or decimal units; every label configurable (matched literally, case-insensitive).
+  Kept current on discussion start, first-post edit, rename and delete; rebuilt from the
+  admin panel (batched, resumable, single-flight, progress bar, *only missing / outdated*)
+  or with `php flarum homepage-blocks:reindex [--only-stale] [--chunk=N]`. The admin shows
+  how many discussions are indexed / missing / indexed with older rules, and a
+  per-discussion preview (what the parser reads now vs. what the index holds).
+- The Category / Resolution live counts include the new filters; the facets endpoint also
+  returns `mediaType: {total, movie, series}` while the Type filter is on.
+- New API filters (`filter[sizeRange]`, `filter[mediaType]`, … — see README) for API clients;
+  malformed values are ignored, `-key` negates, a disabled filter is ignored server-side.
+- Admin endpoints `GET meta/status`, `POST meta/reindex`, `GET meta/preview`.
+- Tests: extractor unit tests on real release posts, integration tests for every filter,
+  sort, the index endpoints, the live index updates (through the real API), facets and the
+  forum payload; the suite also passes with a table prefix.
+
+### Fixed
+- Admin section headings and sub-headings were white on Flarum's light admin theme
+  (invisible); they now use the theme's heading colour.
+
 ## [2.7.0] - 2026-10-13
 
 > Live filter counts, proper light / dark mode and a new "Original" style. **PHP + frontend +

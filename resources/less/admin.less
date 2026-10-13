@@ -17,7 +17,7 @@
     h3 {
         margin: 0 0 5px 0;
         font-size: 16px;
-        color: #fff;
+        color: var(--heading-color, #fff);
     }
 }
 
@@ -53,7 +53,7 @@
     margin: 18px 0 8px;
     font-size: 14px;
     font-weight: 600;
-    color: #fff;
+    color: var(--heading-color, #fff);
 }
 
 .HomepageBlocks-pointsRow {
@@ -354,7 +354,7 @@
 
 .HomepageBlocks-progressText {
     font-size: 12px;
-    color: #bbb;
+    color: var(--muted-color, #bbb);
     margin-top: 4px;
 }
 
@@ -370,6 +370,234 @@
     color: #ff5252;
 }
 
+// Advanced Filters: toggle-reveal group (grid-rows animation — no fixed max-height for this
+// long section), filter switches grid, Type chips, parser <details>, index card + preview table.
+.HomepageBlocks-advGroup {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin: 0;
+    transition: grid-template-rows 0.35s ease, opacity 0.25s ease, margin 0.25s ease;
+
+    &.is-open {
+        grid-template-rows: 1fr;
+        opacity: 1;
+        margin-bottom: 15px;
+    }
+}
+
+.HomepageBlocks-advInner {
+    min-height: 0;
+    overflow: hidden;
+    max-width: 900px;
+    padding-top: 4px;
+}
+
+.HomepageBlocks-advFilters {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.HomepageBlocks-advFilter {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--control-bg, #e7edf3);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: normal;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+
+    &:hover {
+        border-color: var(--primary-color, #4a9eff);
+    }
+
+    &:has(input:checked) {
+        border-color: var(--primary-color, #4a9eff);
+        background: var(--control-body-bg-mix, rgba(74, 158, 255, 0.06));
+    }
+
+    &.is-unavailable {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    input {
+        margin-top: 3px;
+        flex: none;
+    }
+}
+
+.HomepageBlocks-advFilterText {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding-right: 44px; // room for the "index" tag
+
+    small {
+        color: var(--muted-color, #888);
+        font-size: 12px;
+        line-height: 1.35;
+    }
+}
+
+.HomepageBlocks-advTag {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--control-bg, #e7edf3);
+    color: var(--muted-color, #888);
+    font-size: 10px;
+    line-height: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.HomepageBlocks-advBox {
+    margin: 14px 0;
+    padding: 12px 14px;
+    border: 1px solid var(--control-bg, #e7edf3);
+    border-radius: 8px;
+
+    > .HomepageBlocks-pointsHeading:first-child {
+        margin-top: 0;
+    }
+}
+
+.HomepageBlocks-advDetails > summary {
+    cursor: pointer;
+    font-weight: 600;
+    margin: -2px 0 6px;
+}
+
+.HomepageBlocks-advInline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin-bottom: 6px;
+
+    .checkbox {
+        margin: 0;
+    }
+}
+
+.HomepageBlocks-advCheck {
+    margin-bottom: 8px;
+
+    .checkbox {
+        margin: 0;
+    }
+}
+
+.HomepageBlocks-advUnits {
+    margin-top: 10px;
+}
+
+.HomepageBlocks-advLabels {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0 16px;
+}
+
+.HomepageBlocks-advChips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 2px;
+}
+
+.HomepageBlocks-advChip {
+    padding: 3px 10px;
+    border: 1px solid var(--control-bg, #e7edf3);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+
+    &.is-on {
+        border-color: var(--primary-color, #4a9eff);
+        background: var(--primary-color, #4a9eff);
+        color: var(--button-primary-color, #fff);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--primary-color, #4a9eff);
+        outline-offset: 1px;
+    }
+}
+
+.HomepageBlocks-advStatus {
+    margin: 8px 0;
+    font-size: 13px;
+
+    > div {
+        margin-top: 3px;
+    }
+}
+
+.HomepageBlocks-advPreview {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--control-bg, #444);
+
+    > label {
+        display: block;
+        margin-bottom: 4px;
+    }
+
+    .HomepageBlocks-whitelistSecretRow .FormControl {
+        max-width: 180px;
+    }
+}
+
+.HomepageBlocks-advPreviewTitle {
+    margin: 10px 0 6px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.HomepageBlocks-advTable {
+    width: 100%;
+    max-width: 640px;
+    border-collapse: collapse;
+    font-size: 13px;
+
+    th,
+    td {
+        padding: 4px 8px;
+        border-bottom: 1px solid var(--control-bg, #e7edf3);
+        text-align: left;
+    }
+
+    th {
+        color: var(--muted-color, #888);
+        font-weight: 600;
+    }
+
+    tr.is-diff td:nth-child(2) {
+        color: #ffb74d;
+        font-weight: 600;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .HomepageBlocks-advGroup,
+    .HomepageBlocks-whitelistGroup {
+        transition: none;
+    }
+}
+
 // ──────────── Phones (Flarum's @phone breakpoint) ────────────
 // Everything stacks full-width, nothing may overflow to the right, selects match the
 // height of text inputs, and action buttons are centred / full-width.
@@ -379,10 +607,26 @@
     .HomepageBlocks-pointsGroup,
     .HomepageBlocks-linksEditor,
     .HomepageBlocks-whitelistGroup,
-    .HomepageBlocks-whitelistInner {
+    .HomepageBlocks-whitelistInner,
+    .HomepageBlocks-advGroup,
+    .HomepageBlocks-advInner,
+    .HomepageBlocks-advBox {
         max-width: 100%;
         min-width: 0;
         box-sizing: border-box;
+    }
+
+    .HomepageBlocks-advFilters,
+    .HomepageBlocks-advLabels {
+        grid-template-columns: 1fr;
+    }
+
+    .HomepageBlocks-advPreview .HomepageBlocks-whitelistSecretRow .FormControl {
+        max-width: none;
+    }
+
+    .HomepageBlocks-advTable {
+        font-size: 12px;
     }
 
     // Selects rendered by the extension get the same box as Flarum's text inputs

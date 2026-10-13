@@ -81,6 +81,42 @@ You can also find the donation option in the extension's admin settings panel.
     *(with `tryhackx/flarum-magnet-link`)*. Options whose extension isn't
     installed are hidden automatically.
   - Sort direction (ascending / descending)
+- **More filters** (2.8.0, opt-in) — a collapsible panel at the bottom right of
+  the filter bar, plus extra sorts. **Every filter is a separate admin switch**
+  (all off by default — nothing changes until you turn them on):
+  - **Type: movies / series** — an *All / Movies / Series* switch next to the
+    *More filters* button (or, per admin setting, a list in the main row or a
+    field inside the panel); with live counts like the tag lists.
+  - **Size** from – to (MB / GB / TB), **release year** (a series or trilogy
+    matches when its years overlap), **running time**, **seasons**,
+    **episodes**, **IMDb** and **Filmweb** rating — read from each discussion's
+    title and first post (see *Metadata index* below).
+  - Everything the list can be sorted by, as a range: **Steam DB rating** (%),
+    **average rating**, **number of ratings** and **last rated** *(topic-rating)*,
+    **views** *(discussion-views)*, **replies**, **magnet clicks** (all
+    magnets / top magnet), **last magnet click** and **with / without a magnet
+    link** *(magnet-link)*, **date started** and **last activity** (dates in
+    the visitor's own time zone).
+  - The panel groups its fields (*Release*, *Ratings & popularity*, *Dates*)
+    and starts collapsed on every visit unless the admin makes it open by
+    default.
+  - Extra sort options: **size** and **release year** (unknown values last).
+  - Live counts of the Category / Resolution / Type lists include these filters;
+    an invalid range (*from* > *to*) is flagged and never sent; the panel's
+    open / closed state is remembered per browser.
+- **Metadata index** (for the size / type / year / … filters) — release data
+  is read once per discussion into an indexed table, so filtering stays a
+  plain index lookup even on big forums. Kept current automatically (new
+  discussion, first-post edit, rename, delete); rebuilt from the admin panel
+  (batched, resumable, with progress and a per-discussion *preview* of what the
+  parser reads) or with `php flarum homepage-blocks:reindex [--only-stale]`.
+  Everything the parser looks for is configurable: the field labels
+  (`Size:`, `Seasons:`, `Year:` …, comma separated, matched literally), which
+  size sources to use (magnet `xl=` exact length → a `Size:` line → a size in
+  the title), binary or decimal units, and the series rules (a kind field such
+  as `Serial: TV Series`, seasons / episodes values, `S01E01` markers, or
+  admin-picked *series tags*). Posts are read as plain text, so BBCode,
+  Markdown and literal markup all work.
 - **Content-validation overrides** — override Flarum's built-in title
   and content length limits without patching core:
   - Title length: 1–200 characters (`varchar(200)` column max).
@@ -170,8 +206,13 @@ php flarum cache:clear
 
 ```bash
 composer update tryhackx/flarum-homepage-blocks
+php flarum migrate
 php flarum cache:clear
 ```
+
+Using the *More filters* index-based filters? Build the index once after
+enabling them (admin → *Index* → *Rebuild index*, or
+`php flarum homepage-blocks:reindex`).
 
 ## Configuration
 
@@ -188,6 +229,27 @@ php flarum cache:clear
 | **Rate limiting** | Per-IP points limiter on search/filters. When a visitor runs out of points the IP is temporarily blocked (configurable duration and post-block budget reset). Guests pay an extra per-action cost. |
 | **Tracker whitelist sync** | Enable toggle (reveals the settings), tracker URL, API key ID, API secret (own *Save secret* button — stored server-side only), live-sync timeout, optional bare-hash detection, **Test connection** and **Scan whole forum** with a progress bar (batched, resumable). |
 | ↳ **Only sync magnets that point at our tracker** (2.6.1) | Off by default. When on, a hash is sent only if its magnet link has a `tr=` announce URL on one of the **Tracker hosts** (comma / newline separated hostnames or IPs, e.g. `tryhackx.org, 135.125.236.64`; `host:port` / full URLs accepted, case-insensitive). Hashes without a magnet (bare `btih:` / bare 40-hex) are skipped; the scan reports them as *skipped*. An empty host list sends nothing and is reported on the last-error line. |
+| **Advanced filters** (2.8.0) | Master switch (off by default), panel expanded by default, one switch per filter (filters needing a missing extension are greyed out), Type position / field name / *series tags*, extra sorts, **How release data is read from posts** (size sources, units, labels, series rules — placeholders show the defaults) and the **Index** card (status, *Rebuild index*, *Only missing / outdated*, per-discussion preview). After enabling an index-based filter, rebuild the index once; after changing the parser rules, save and rebuild. |
+
+### Advanced filters — API
+
+The panel sends ordinary `GET /api/discussions` filters, so they also work for
+API clients. Ranges are `min..max` with either side optional (`10GB..`,
+`..2010`, `5..20`); malformed values are ignored, `-key` negates. A disabled
+filter is ignored server-side too.
+
+| Filter | Value |
+| --- | --- |
+| `filter[mediaType]` | `movie` / `series` |
+| `filter[sizeRange]` | numbers with an optional unit `B`, `KB`…`TB`, `KiB`…`TiB` (default `GB`) |
+| `filter[yearRange]`, `filter[seasonsRange]`, `filter[episodesRange]`, `filter[durationRange]` (minutes) | numbers |
+| `filter[imdbRange]`, `filter[filmwebRange]` (0–10), `filter[ratingRange]` (0–5), `filter[steamRange]` (0–100 %), `filter[ratingCountRange]`, `filter[viewsRange]`, `filter[repliesRange]`, `filter[clicksRange]`, `filter[clicksTopRange]` | numbers |
+| `filter[createdRange]`, `filter[activeRange]`, `filter[ratedRange]`, `filter[clickedRange]` | unix timestamps or `YYYY-MM-DD` (UTC day, end day included) |
+| `filter[hasMagnet]` | `1` / `0` |
+| `sort` | `-hbSize` / `hbSize`, `-hbYear` / `hbYear` |
+
+The Steam DB score (filter and sort) uses SQL `POWER()` — available on
+MySQL, MariaDB and PostgreSQL; on SQLite it needs a build with math functions.
 
 ## API endpoints
 
@@ -195,7 +257,10 @@ php flarum cache:clear
 | --- | --- | --- |
 | `GET` | `/api/tryhackx/homepage/stats` | Forum / tracker statistics (served from a shared server-side cache). |
 | `POST` | `/api/tryhackx/homepage/points/check` | Rate-limiter pre-flight for a search (`?action=search`, `&facets=1` when the live counts will be fetched too). |
-| `GET` | `/api/tryhackx/homepage/facets` | Live Category / Resolution counts for the filter bar: `filter[title|user|dateInterval|ratingInterval]`, `category=<slug|all>`, `resolution=<slug|all>` → `{category: {total, counts: {tagId: n}}, resolution: {…}}`. Same filters and visibility as the discussion list; heavy title/user searches go through the rate limiter. |
+| `GET` | `/api/tryhackx/homepage/facets` | Live Category / Resolution (and Type) counts for the filter bar: `filter[title|user|dateInterval|ratingInterval]` and the *More filters* keys, `category=<slug|all>`, `resolution=<slug|all>` → `{category: {total, counts: {tagId: n}}, resolution: {…}, mediaType: {total, movie, series}}` (`mediaType` only while the Type filter is on). Same filters and visibility as the discussion list; heavy title/user searches go through the rate limiter (range filters are index lookups and aren't metered). |
+| `GET` | `/api/tryhackx/homepage/meta/status` | Admin only — Advanced Filters index status (`total, indexed, missing, stale, with_size, series, movies`) + the parser defaults. |
+| `POST` | `/api/tryhackx/homepage/meta/reindex` | Admin only — one batch of the index rebuild (`{cursor, only_stale?}` → `{next_cursor, done, processed, elapsed_ms, status?}`); single-flight (409 while another batch runs). |
+| `GET` | `/api/tryhackx/homepage/meta/preview?id=N` | Admin only — what the parser reads from discussion N with the current settings, next to what the index holds. |
 | `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew. |
 | `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, …}`); on a tracker error the cursor is not advanced. |
 | `POST` | `/api/tryhackx/homepage/whitelist/secret` | Admin only — stores / clears the tracker API secret (accepts a full `key_id.secret` token). |

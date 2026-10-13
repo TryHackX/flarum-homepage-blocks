@@ -5,6 +5,7 @@ import DiscussionListState from 'flarum/forum/states/DiscussionListState';
 import CollapsibleSection from './components/CollapsibleSection';
 import HomepageMainBlock from './components/HomepageMainBlock';
 import AdvancedFilters from './components/AdvancedFilters';
+import { emptyAdvState } from './utils/advanced';
 
 app.initializers.add('tryhackx-homepage-blocks', () => {
     // ── Theme ──
@@ -61,6 +62,13 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
             map.recently_magnet_clicked = '-magnetLastClicked';
             map.oldest_magnet_clicked = 'magnetLastClicked';
         }
+
+        // Advanced Filters index sorts — always registered server-side (Sort\MetaSort),
+        // so the aliases are safe even while the options are hidden.
+        map.hb_size_desc = '-hbSize';
+        map.hb_size_asc = 'hbSize';
+        map.hb_year_desc = '-hbYear';
+        map.hb_year_asc = 'hbYear';
     });
 
     // Initialize global filter state with defaults matching option keys in AdvancedFilters
@@ -73,6 +81,7 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
         category: 'all',
         resolution: 'all',
         sortDirection: 'desc',
+        adv: emptyAdvState(), // "More filters" + Type (utils/advanced)
     };
 
     // Collapsed state from localStorage (persists across page loads)

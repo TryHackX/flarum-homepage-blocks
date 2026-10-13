@@ -7,6 +7,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TryHackX\HomepageBlocks\Concerns\BuildsGuardResponse;
+use TryHackX\HomepageBlocks\Search\FacetCounter;
 use TryHackX\HomepageBlocks\Security\RateLimiter;
 
 /**
@@ -84,6 +85,8 @@ class SearchRateLimitMiddleware implements MiddlewareInterface
         $user = is_string($filter['user'] ?? null) ? trim($filter['user']) : '';
 
         return mb_strlen($title) >= self::MIN_FILTER_LEN
-            || mb_strlen($user) >= self::MIN_FILTER_LEN;
+            || mb_strlen($user) >= self::MIN_FILTER_LEN
+            // …or a "More filters" range no index can serve (Steam DB score, magnet clicks).
+            || FacetCounter::isHeavy(FacetCounter::normaliseFilters(array_intersect_key($filter, array_flip(FacetCounter::HEAVY_KEYS))));
     }
 }

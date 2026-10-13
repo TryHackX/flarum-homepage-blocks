@@ -22,6 +22,13 @@ use TryHackX\HomepageBlocks\Search\UserFilter;
 use TryHackX\HomepageBlocks\Provider\StoreProvider;
 use TryHackX\HomepageBlocks\Search\SteamRatingSortMutator;
 use TryHackX\HomepageBlocks\Sort\SteamRatingSort;
+use TryHackX\HomepageBlocks\Advanced\ForumPayload;
+use TryHackX\HomepageBlocks\Api\Controller\MetaIndexController;
+use TryHackX\HomepageBlocks\Console\ReindexMetaCommand;
+use TryHackX\HomepageBlocks\Listener\IndexDiscussionMeta;
+use TryHackX\HomepageBlocks\Search\Advanced;
+use TryHackX\HomepageBlocks\Search\MetaSortMutator;
+use TryHackX\HomepageBlocks\Sort\MetaSort;
 
 // `FieldLengthModifier` jest związany jako SINGLETON w StoreProvider (jedna instancja
 // na żądanie, zarządzana przez kontener — testowalna/podmienialna, audyt H6/H7).
@@ -57,7 +64,11 @@ return [
         // Tracker whitelist sync (admin-only controllers, assertAdmin inside).
         ->post('/tryhackx/homepage/whitelist/test', 'tryhackx.homepage.whitelist.test', WhitelistTestController::class)
         ->post('/tryhackx/homepage/whitelist/scan', 'tryhackx.homepage.whitelist.scan', WhitelistScanController::class)
-        ->post('/tryhackx/homepage/whitelist/secret', 'tryhackx.homepage.whitelist.secret', WhitelistSecretController::class),
+        ->post('/tryhackx/homepage/whitelist/secret', 'tryhackx.homepage.whitelist.secret', WhitelistSecretController::class)
+        // Advanced Filters index (admin-only, assertAdmin inside).
+        ->get('/tryhackx/homepage/meta/status', 'tryhackx.homepage.meta.status', MetaIndexController::class)
+        ->post('/tryhackx/homepage/meta/reindex', 'tryhackx.homepage.meta.reindex', MetaIndexController::class)
+        ->get('/tryhackx/homepage/meta/preview', 'tryhackx.homepage.meta.preview', MetaIndexController::class),
 
     // ── Tracker whitelist sync ──
     // Every created / edited comment post is scanned for magnet links which are pushed to the
@@ -142,13 +153,39 @@ return [
             return $value === 'original' ? 'original' : 'fitted';
         })
         ->serializeToForum('tryhackx-homepage-blocks.category_label', 'tryhackx-homepage-blocks.category_label')
-        ->serializeToForum('tryhackx-homepage-blocks.resolution_label', 'tryhackx-homepage-blocks.resolution_label'),
+        ->serializeToForum('tryhackx-homepage-blocks.resolution_label', 'tryhackx-homepage-blocks.resolution_label')
+        // Advanced Filters: switches + labels only (null while off); parser rules stay server-side.
+        ->serializeToForum('tryhackxHomepageAdv', 'tryhackx-homepage-blocks.adv_enabled', ForumPayload::class),
 
     // ── Filtry oparte na rdzeniowych kolumnach (zawsze dostępne) ──
     (new Extend\SearchDriver(DatabaseSearchDriver::class))
         ->addFilter(DiscussionSearcher::class, DateIntervalFilter::class)
         ->addFilter(DiscussionSearcher::class, TitleFilter::class)
-        ->addFilter(DiscussionSearcher::class, UserFilter::class),
+        ->addFilter(DiscussionSearcher::class, UserFilter::class)
+        // „Więcej filtrów" — każdy sprawdza swój przełącznik w adminie (wyłączony = ignorowany),
+        // filtry z indeksu czytają tabelę homepage_discussion_meta (Meta\MetaIndexer).
+        ->addFilter(DiscussionSearcher::class, Advanced\MediaTypeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\CreatedRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\ActiveRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\RepliesRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\SizeRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\SeasonsRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\EpisodesRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\YearRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\DurationRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\ImdbRangeFilter::class)
+        ->addFilter(DiscussionSearcher::class, Advanced\FilmwebRangeFilter::class)
+        // Sortowanie po rozmiarze / roku z indeksu — zawsze podmieniane (patrz Sort\MetaSort).
+        ->addMutator(DiscussionSearcher::class, MetaSortMutator::class),
+    (new Extend\ApiResource(DiscussionResource::class))
+        ->sorts(fn () => [
+            MetaSort::make('hbSize'),
+            MetaSort::make('hbYear'),
+        ]),
+
+    // ── Indeks zaawansowanych filtrów: aktualizacja na żywo + komenda przebudowy ──
+    (new Extend\Event())->subscribe(IndexDiscussionMeta::class),
+    (new Extend\Console())->command(ReindexMetaCommand::class),
 
     // ── Sortowania/filtry zależne od innych rozszerzeń ──
     // Rejestrujemy je TYLKO gdy dane rozszerzenie jest włączone, więc na forum bez
@@ -166,6 +203,10 @@ return [
                 ]),
             (new Extend\SearchDriver(DatabaseSearchDriver::class))
                 ->addFilter(DiscussionSearcher::class, RatingFilter::class)
+                ->addFilter(DiscussionSearcher::class, Advanced\RatingRangeFilter::class)
+                ->addFilter(DiscussionSearcher::class, Advanced\RatingCountRangeFilter::class)
+                ->addFilter(DiscussionSearcher::class, Advanced\SteamRangeFilter::class)
+                ->addFilter(DiscussionSearcher::class, Advanced\RatedRangeFilter::class)
                 ->addMutator(DiscussionSearcher::class, SteamRatingSortMutator::class),
             // Sam fakt obecności atrybutu (frontend sprawdza `typeof !== undefined`)
             // sygnalizuje dostępność funkcji. Klucz dedykowany i samodokumentujący —
@@ -176,6 +217,15 @@ return [
         ->whenExtensionEnabled('fof-discussion-views', fn () => [
             (new Extend\Settings())
                 ->serializeToForum('tryhackxHomepageHasViews', 'tryhackx-homepage-blocks.has_views', fn () => true),
+            (new Extend\SearchDriver(DatabaseSearchDriver::class))
+                ->addFilter(DiscussionSearcher::class, Advanced\ViewsRangeFilter::class),
+        ])
+        ->whenExtensionEnabled('tryhackx-magnet-link', fn () => [
+            (new Extend\SearchDriver(DatabaseSearchDriver::class))
+                ->addFilter(DiscussionSearcher::class, Advanced\HasMagnetFilter::class)
+                ->addFilter(DiscussionSearcher::class, Advanced\MagnetClicksRangeFilter::class)
+                ->addFilter(DiscussionSearcher::class, Advanced\MagnetTopClicksRangeFilter::class)
+                ->addFilter(DiscussionSearcher::class, Advanced\MagnetClickedRangeFilter::class),
         ]),
 
     // ── Nadpisanie długości tytułu/treści (dyskusje) ──

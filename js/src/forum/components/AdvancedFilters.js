@@ -2,6 +2,11 @@ import Component from 'flarum/common/Component';
 import app from 'flarum/forum/app';
 import { preflightCheck, guardActiveFor, showRateLimitNotice } from '../utils/ratelimit';
 import { transStr } from '../utils/trans';
+import MoreFilters from './MoreFilters';
+import {
+    advConfig, typePlacement, sortEnabled, emptyAdvState, advFilterParams, fieldValue,
+    clearPanel, isPanelOpen, setPanelOpen,
+} from '../utils/advanced';
 
 /**
  * AdvancedFilters component.
@@ -28,6 +33,9 @@ export default class AdvancedFilters extends Component {
 
         // Restore filter state from global (survives collapse/expand)
         this.filters = app.homepageFilters;
+        if (!this.filters.adv) this.filters.adv = emptyAdvState();
+        // "More filters" panel: expanded state remembered per browser (admin sets the default).
+        this.moreOpen = isPanelOpen();
         this.categoryTags = [];
         this.resolutionTags = [];
         this.debounceTimer = null;
@@ -106,6 +114,9 @@ export default class AdvancedFilters extends Component {
             sortOptions['7'] = transStr('tryhackx-homepage-blocks.forum.sort_magnet_max');
             sortOptions['8'] = transStr('tryhackx-homepage-blocks.forum.sort_recently_clicked');
         }
+        // Advanced Filters index sorts (admin switches).
+        if (sortEnabled('size')) sortOptions['9'] = transStr('tryhackx-homepage-blocks.forum.sort_size');
+        if (sortEnabled('year')) sortOptions['10'] = transStr('tryhackx-homepage-blocks.forum.sort_year');
 
         const dateIntervalOptions = {
             '0': transStr('tryhackx-homepage-blocks.forum.interval_all'),
@@ -137,6 +148,8 @@ export default class AdvancedFilters extends Component {
                     app.forum.attribute('tryhackx-homepage-blocks.category_label') || null),
                 this.renderSelect('filter_resolution', resolutionOptions, 'resolution',
                     app.forum.attribute('tryhackx-homepage-blocks.resolution_label') || null),
+                // Movies / series — here by default, or inside "More filters" (admin).
+                typePlacement() === 'main' ? this.renderTypeSelect() : null,
                 m('div', { className: 'AdvancedFilters-field AdvancedFilters-field--right' }, [
                     m('label', transStr('tryhackx-homepage-blocks.forum.filter_direction') + ':'),
                     m(
@@ -155,7 +168,69 @@ export default class AdvancedFilters extends Component {
                     ),
                 ]),
             ]),
+            advConfig()
+                ? m(MoreFilters, {
+                    state: this.filters.adv,
+                    open: this.moreOpen,
+                    updating: this.facetsLoading,
+                    typeLabel: (key) => this.typeOptionLabel(key),
+                    onToggle: () => {
+                        this.moreOpen = !this.moreOpen;
+                        setPanelOpen(this.moreOpen);
+                    },
+                    onChange: (field, immediate) => this.onAdvChange(field, immediate),
+                    onClear: () => {
+                        clearPanel(this.filters.adv);
+                        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+                        this.applyFilters();
+                    },
+                })
+                : null,
         ]);
+    }
+
+    /** Type (movies / series) select for the main row, with live counts like the tag lists. */
+    renderTypeSelect() {
+        const cfg = advConfig();
+        const label = (cfg && cfg.typeLabel) || transStr('tryhackx-homepage-blocks.forum.adv_type');
+        return m('div', { className: 'AdvancedFilters-field AdvancedFilters-field--type' + (this.facetsLoading ? ' AdvancedFilters-field--updating' : '') }, [
+            m('label', label + ':'),
+            m('select', {
+                className: 'FormControl',
+                value: this.filters.adv.mediaType,
+                onchange: (e) => {
+                    this.filters.adv.mediaType = e.target.value;
+                    this.applyFilters();
+                },
+            }, ['all', 'movie', 'series'].map((key) => m('option', { value: key }, this.typeOptionLabel(key)))),
+        ]);
+    }
+
+    /** "Movies (130)" — the count is what the list returns with this option picked. */
+    typeOptionLabel(key) {
+        const name = transStr('tryhackx-homepage-blocks.forum.adv_type_' + key);
+        const facet = this.facets && this.facets.mediaType;
+        if (!app.forum.attribute('tryhackx-homepage-blocks.show_tag_count') || !facet) return name;
+        const count = key === 'all' ? facet.total : facet[key];
+        return typeof count === 'number' ? name + ' (' + count + ')' : name;
+    }
+
+    /**
+     * A "More filters" field changed. Typing is debounced like the title search;
+     * a select / date applies at once. While a field is invalid ("from" > "to", not a
+     * number) the list keeps its last results instead of dropping that filter.
+     */
+    onAdvChange(field, immediate) {
+        if (fieldValue(field, this.filters.adv).invalid) {
+            if (this.debounceTimer) clearTimeout(this.debounceTimer);
+            return;
+        }
+        if (immediate) {
+            if (this.debounceTimer) clearTimeout(this.debounceTimer);
+            this.applyFilters();
+        } else {
+            this.debounceApply();
+        }
     }
 
     renderTextField(labelKey, placeholderKey, filterKey) {
@@ -380,7 +455,10 @@ export default class AdvancedFilters extends Component {
 
     isHeavySearch() {
         const long = (v) => !!v && v.trim().length >= 3;
-        return long(this.filters.title) || long(this.filters.user);
+        if (long(this.filters.title) || long(this.filters.user)) return true;
+        // Ranges no index can serve are metered too (FacetCounter::HEAVY_KEYS).
+        const adv = advFilterParams(this.filters.adv);
+        return ['steamRange', 'clicksRange', 'clicksTopRange', 'clickedRange'].some((k) => adv[k] !== undefined);
     }
 
     /**
@@ -412,6 +490,9 @@ export default class AdvancedFilters extends Component {
         if (this.filters.dateInterval !== '0') {
             filter.dateInterval = this.filters.dateInterval;
         }
+
+        // "More filters" (+ Type): only usable values are sent (see utils/advanced).
+        Object.assign(filter, advFilterParams(this.filters.adv));
 
         return filter;
     }
@@ -483,6 +564,9 @@ export default class AdvancedFilters extends Component {
             '6': { desc: 'most_magnet_clicks',        asc: 'least_magnet_clicks' },        // Magnet clicks total (sum)
             '7': { desc: 'most_magnet_clicks_single', asc: 'least_magnet_clicks_single' }, // Magnet clicks max (best single magnet)
             '8': { desc: 'recently_magnet_clicked',   asc: 'oldest_magnet_clicked' },      // Last clicked (time)
+            // Advanced Filters index sorts (Sort\MetaSort); unknown values always last.
+            '9': { desc: 'hb_size_desc',  asc: 'hb_size_asc' },   // Release size
+            '10': { desc: 'hb_year_desc', asc: 'hb_year_asc' },   // Release year
         };
 
         // Zabezpieczenie: jeśli zapisany wybór dotyczy sortowania z rozszerzenia,
@@ -493,7 +577,9 @@ export default class AdvancedFilters extends Component {
         let sortBy = this.filters.sortBy;
         if (((['0', '1', '2', '3'].indexOf(sortBy) !== -1) && !hasRating) ||
             (sortBy === '5' && !hasViews) ||
-            ((['6', '7', '8'].indexOf(sortBy) !== -1) && !hasMagnet)) {
+            ((['6', '7', '8'].indexOf(sortBy) !== -1) && !hasMagnet) ||
+            (sortBy === '9' && !sortEnabled('size')) ||
+            (sortBy === '10' && !sortEnabled('year'))) {
             sortBy = '4';
         }
 

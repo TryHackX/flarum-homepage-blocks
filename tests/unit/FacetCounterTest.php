@@ -48,4 +48,19 @@ class FacetCounterTest extends TestCase
         $this->assertTrue(FacetCounter::isHeavy(['title' => 'abc']));
         $this->assertTrue(FacetCounter::isHeavy(['user' => 'żół']));
     }
+
+    #[Test]
+    public function ranges_no_index_can_serve_are_heavy_too(): void
+    {
+        $this->assertTrue(FacetCounter::isHeavy(['steamRange' => '70..']));
+        $this->assertTrue(FacetCounter::isHeavy(['clicksRange' => '10..']));
+        $this->assertFalse(FacetCounter::isHeavy(['sizeRange' => '10GB..', 'mediaType' => 'series']), 'index lookups are cheap');
+    }
+
+    #[Test]
+    public function without_a_magnet_survives_normalisation(): void
+    {
+        // The panel sends yes / no — a bare "0" would be dropped as "All".
+        $this->assertSame(['hasMagnet' => 'no'], FacetCounter::normaliseFilters(['hasMagnet' => 'no']));
+    }
 }

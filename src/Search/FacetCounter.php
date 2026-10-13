@@ -37,7 +37,14 @@ use Illuminate\Support\Arr;
 class FacetCounter
 {
     /** Filters the Advanced Filters panel may send (besides the two tag facets). */
-    public const FILTER_KEYS = ['title', 'user', 'dateInterval', 'ratingInterval'];
+    public const FILTER_KEYS = [
+        'title', 'user', 'dateInterval', 'ratingInterval',
+        // "More filters" (each one still checks its own admin switch when applied)
+        'mediaType', 'createdRange', 'activeRange', 'viewsRange', 'ratingRange', 'ratingCountRange',
+        'repliesRange', 'sizeRange', 'seasonsRange', 'episodesRange', 'yearRange', 'durationRange',
+        'imdbRange', 'filmwebRange', 'hasMagnet', 'steamRange', 'ratedRange', 'clicksRange', 'clicksTopRange',
+        'clickedRange',
+    ];
 
     /** Seconds a result is cached (per guest-or-user + filter set). */
     public const CACHE_TTL = 60;
@@ -52,11 +59,15 @@ class FacetCounter
 
     /**
      * @param array<string, string> $filters  normalised by {@see normaliseFilters()}
-     * @return array{category: array{total: int, counts: array<string, int>}, resolution: array{total: int, counts: array<string, int>}}
+     * With $mediaTypes (the Type filter is on) the result also has
+     * `mediaType: {total, movie, series}` — the Type options' counts under every other
+     * filter, both tag picks included.
+     *
+     * @return array{category: array{total: int, counts: array<string, int>}, resolution: array{total: int, counts: array<string, int>}, mediaType?: array{total: int, movie: int, series: int}}
      */
-    public function count(User $actor, array $filters, ?string $category, ?string $resolution): array
+    public function count(User $actor, array $filters, ?string $category, ?string $resolution, bool $mediaTypes = false): array
     {
-        $compute = function () use ($actor, $filters, $category, $resolution) {
+        $compute = function () use ($actor, $filters, $category, $resolution, $mediaTypes) {
             $visibleTags = Tag::query()->whereVisibleTo($actor)->pluck('id')->all();
 
             $categoryFacet = $this->facet($actor, $this->withTags($filters, $resolution), $visibleTags);
@@ -64,7 +75,12 @@ class FacetCounter
                 ? $categoryFacet
                 : $this->facet($actor, $this->withTags($filters, $category), $visibleTags);
 
-            return ['category' => $categoryFacet, 'resolution' => $resolutionFacet];
+            $out = ['category' => $categoryFacet, 'resolution' => $resolutionFacet];
+            if ($mediaTypes) {
+                $out['mediaType'] = $this->mediaTypeFacet($actor, $this->withTags($filters, $category, $resolution));
+            }
+
+            return $out;
         };
 
         // Text searches are near-unique (and rate limited): caching them would only
@@ -79,6 +95,7 @@ class FacetCounter
             $filters,
             $category,
             $resolution,
+            $mediaTypes,
         ]));
 
         return $this->cache->remember($key, self::CACHE_TTL, $compute);
@@ -118,13 +135,26 @@ class FacetCounter
         return $raw;
     }
 
+    /** "More filters" ranges no index can serve (an expression / a GROUP BY over the click log). */
+    public const HEAVY_KEYS = ['steamRange', 'clicksRange', 'clicksTopRange', 'clickedRange'];
+
     /**
-     * Does this filter set run the expensive LIKE '%…%' filters (same 3-character
-     * threshold as TitleFilter / UserFilter)? Those go through the rate limiter.
+     * Does this filter set run expensive filters — the LIKE '%…%' title / user search
+     * (same 3-character threshold as TitleFilter / UserFilter) or one of HEAVY_KEYS?
+     * Those go through the rate limiter (and aren't cached).
      */
     public static function isHeavy(array $filters): bool
     {
-        return mb_strlen($filters['title'] ?? '') >= 3 || mb_strlen($filters['user'] ?? '') >= 3;
+        if (mb_strlen($filters['title'] ?? '') >= 3 || mb_strlen($filters['user'] ?? '') >= 3) {
+            return true;
+        }
+        foreach (self::HEAVY_KEYS as $key) {
+            if (($filters[$key] ?? '') !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -166,6 +196,22 @@ class FacetCounter
         return (int) $state->getQuery()->toBase()->getCountForPagination();
     }
 
+    /**
+     * @return array{total: int, movie: int, series: int}
+     */
+    protected function mediaTypeFacet(User $actor, array $filters): array
+    {
+        unset($filters['mediaType']);
+        $count = fn (array $f) => (int) $this->filteredState($actor, $f)->getQuery()->toBase()->getCountForPagination();
+
+        return [
+            // Same "All" figure as the list / the tag facets (hidden-tags rule included).
+            'total' => $this->total($actor, $filters, $this->filteredState($actor, $filters)),
+            'movie' => $count($filters + ['mediaType' => 'movie']),
+            'series' => $count($filters + ['mediaType' => 'series']),
+        ];
+    }
+
     protected function filteredState(User $actor, array $filters): DatabaseSearchState
     {
         $state = new DatabaseSearchState($actor, false);
@@ -194,13 +240,14 @@ class FacetCounter
     }
 
     /**
-     * Add one picked tag (the other facet's selection) to the filters, the way the
+     * Add the picked tag(s) (the other facet's selection) to the filters, the way the
      * frontend does for the list (`filter[tag][]=slug`).
      */
-    protected function withTags(array $filters, ?string $slug): array
+    protected function withTags(array $filters, ?string ...$slugs): array
     {
-        if ($slug !== null) {
-            $filters['tag'] = [$slug];
+        $slugs = array_values(array_unique(array_filter($slugs, fn ($s) => $s !== null)));
+        if ($slugs) {
+            $filters['tag'] = $slugs;
         }
 
         return $filters;

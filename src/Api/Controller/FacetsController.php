@@ -7,6 +7,7 @@ use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use TryHackX\HomepageBlocks\Advanced\AdvancedSettings;
 use TryHackX\HomepageBlocks\Concerns\BuildsGuardResponse;
 use TryHackX\HomepageBlocks\Search\FacetCounter;
 use TryHackX\HomepageBlocks\Security\RateLimiter;
@@ -17,11 +18,13 @@ use TryHackX\HomepageBlocks\Security\RateLimiter;
  *
  * Query (same values the panel sends to /api/discussions):
  *   filter[title], filter[user], filter[dateInterval], filter[ratingInterval],
+ *   the "More filters" ones (filter[mediaType], filter[sizeRange], …),
  *   category=<tag slug|all>, resolution=<tag slug|all>
  *
  * Response:
  *   { category:   { total, counts: { tagId: n } },
- *     resolution: { total, counts: { tagId: n } } }
+ *     resolution: { total, counts: { tagId: n } },
+ *     mediaType:  { total, movie, series } }   ← only while the Type filter is on
  *
  * With a heavy title/user filter this is as expensive as the search itself, so it
  * goes through the same rate limiter as SearchRateLimitMiddleware: it consumes
@@ -34,7 +37,8 @@ class FacetsController implements RequestHandlerInterface
 
     public function __construct(
         protected FacetCounter $facets,
-        protected RateLimiter $limiter
+        protected RateLimiter $limiter,
+        protected AdvancedSettings $adv
     ) {}
 
     public function handle(ServerRequestInterface $request): ResponseInterface
@@ -52,7 +56,8 @@ class FacetsController implements RequestHandlerInterface
             RequestUtil::getActor($request),
             $filters,
             FacetCounter::normaliseSlug($params['category'] ?? null),
-            FacetCounter::normaliseSlug($params['resolution'] ?? null)
+            FacetCounter::normaliseSlug($params['resolution'] ?? null),
+            $this->adv->filterEnabled('type')
         ));
     }
 }

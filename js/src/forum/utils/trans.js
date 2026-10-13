@@ -9,8 +9,8 @@ import app from 'flarum/forum/app';
  * Wspólne dla TrackerStats / AdvancedFilters (audyt #8 — wcześniej identyczna
  * metoda była skopiowana do każdego z tych komponentów).
  */
-export function transStr(key) {
-    const result = app.translator.trans(key);
+export function transStr(key, params) {
+    const result = app.translator.trans(key, params);
     if (Array.isArray(result)) {
         return result.map((item) => (typeof item === 'string' ? item : '')).join('');
     }

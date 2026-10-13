@@ -3,6 +3,7 @@ import { extend } from 'flarum/common/extend';
 import ResetExtensionSettingsModal from 'flarum/admin/components/ResetExtensionSettingsModal';
 import SupportModal from './components/SupportModal';
 import registerWhitelistSettings from './whitelist';
+import registerAdvancedSettings from './advanced';
 
 const S = 'tryhackx-homepage-blocks';
 
@@ -434,4 +435,11 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
 // Tracker whitelist sync section (own module: toggle-reveal group, secret endpoint, test, batched scan)
 app.initializers.add('tryhackx-homepage-blocks-whitelist', () => {
     registerWhitelistSettings();
+});
+
+// Advanced Filters ("More filters") section (own module: filter switches, Type options, parser
+// rules, metadata index status / batched rebuild / preview). Registered after the whitelist so
+// both custom sections keep their place at the end of the settings page.
+app.initializers.add('tryhackx-homepage-blocks-advanced', () => {
+    registerAdvancedSettings();
 });
