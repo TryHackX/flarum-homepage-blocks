@@ -255,7 +255,7 @@ class TrackerWhitelistClient
         $raw = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $curlErr = $raw === false ? curl_error($ch) : '';
-        curl_close($ch);
+        unset($ch); // frees the handle (curl_close() is a deprecated no-op since PHP 8.5)
         $elapsed = (int) ((microtime(true) - $t0) * 1000);
 
         if ($raw === false || $raw === null) {

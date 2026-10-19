@@ -32,6 +32,9 @@ class TrackerStatsController implements RequestHandlerInterface
     /** Po nieudanym fetchu nie ponawiamy do trackera przez tyle sekund (anty-hammering). */
     protected const EXTERNAL_FAIL_COOLDOWN = 30;
 
+    /** Górny limit odpowiedzi trackera ze statystykami (bajty). */
+    protected const EXTERNAL_MAX_BYTES = 2 * 1024 * 1024;
+
     public function __construct(
         protected SettingsRepositoryInterface $settings,
         protected Store $store
@@ -75,7 +78,9 @@ class TrackerStatsController implements RequestHandlerInterface
     protected function computeInternalStats(): array
     {
         $stats = [];
-        $stats['discussions'] = Discussion::whereNull('hidden_at')->count();
+        // Public discussions only: private ones (unapproved posts held by flarum/approval,
+        // private conversations of other extensions) are not part of a public counter.
+        $stats['discussions'] = Discussion::whereNull('hidden_at')->where('is_private', false)->count();
         $stats['users'] = User::count();
 
         // Magnety (z tryhackx/flarum-magnet-link, jeśli zainstalowane).
@@ -336,6 +341,13 @@ class TrackerStatsController implements RequestHandlerInterface
                     curl_setopt($ch, CURLOPT_USERAGENT, $userAgent);
                     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
                     curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
+                    // http(s) only, also after redirects, and a bounded body: the stats
+                    // page is a few KB, a misbehaving host must not fill PHP memory.
+                    curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+                    curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+                    curl_setopt($ch, CURLOPT_MAXFILESIZE, self::EXTERNAL_MAX_BYTES);
+                    curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+                    curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, static fn ($ch, $dlTotal, $dlNow): int => $dlNow > self::EXTERNAL_MAX_BYTES ? 1 : 0);
                     if (defined('CURLOPT_IPRESOLVE')) {
                         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
                     }
@@ -344,7 +356,7 @@ class TrackerStatsController implements RequestHandlerInterface
                 } catch (\Throwable $e) {
                     // cURL zepsuty w locie — potraktuj jak porażkę fetcha (null niżej).
                 } finally {
-                    @curl_close($ch);
+                    unset($ch); // frees the handle (curl_close() is a deprecated no-op since PHP 8.5)
                 }
 
                 return ($response !== false && $httpCode >= 200 && $httpCode < 400) ? $response : null;

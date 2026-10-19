@@ -34,8 +34,8 @@
     },
     "require": {
         "php": "^8.3",
-        "flarum/core": "^2.0.0-rc.1",
-        "flarum/tags": "^2.0.0-rc.1"
+        "flarum/core": "^2.0.2",
+        "flarum/tags": "^2.0"
     },
     "suggest": {
         "fof/discussion-views": "For view count stats",

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-10-20
+
+### Fixed
+- **The public "discussions" counter counts public discussions only.** It counted every
+  non-hidden row, so private discussions — posts held for approval by flarum/approval,
+  private conversations of other extensions — inflated the number shown to everyone. New
+  integration test `TrackerStatsTest`.
+- **External tracker stats fetch is bounded.** The stats URL (admin setting) was fetched
+  with redirects but without a protocol restriction or a size cap: now http(s) only, also
+  after redirects, and the response is cut at 2 MB instead of being read into memory whole.
+- No more `curl_close()` (a deprecated no-op since PHP 8.5): the handles are released by
+  `unset()`.
+
+### Changed
+- Requires Flarum `^2.0.2` (stable) and flarum/tags `^2.0`. The whole test suite (unit +
+  integration) passes on Flarum 2.0.2.
+
 ## [2.8.2] - 2026-10-14
 
 ### Fixed

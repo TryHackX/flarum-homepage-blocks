@@ -173,7 +173,7 @@ You can also find the donation option in the extension's admin settings panel.
 
 ## Requirements
 
-- Flarum `^2.0.0-rc.1`
+- Flarum `^2.0.2`
 - PHP `^8.3` (matches Flarum 2.x's own minimum); `ext-curl` for the tracker
   statistics fetch and the whitelist sync
 - `flarum/tags` (required)
