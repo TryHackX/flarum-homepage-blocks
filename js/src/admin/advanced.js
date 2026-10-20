@@ -142,6 +142,9 @@ export default function registerAdvancedSettings() {
         }
         if (key === 'is_series') return String(value) === '1' ? ts('preview_series') : ts('preview_movie');
         if (key === 'year_end' && String(value) === '9999') return ts('preview_running');
+        // The index stores decimal(3,1) ("7.0"), the parser returns a number (7): same format
+        // for both, or an unchanged rating would be highlighted as different.
+        if (key === 'imdb_rating' || key === 'filmweb_rating') return Number(value).toFixed(1);
         return String(value);
     }
 

@@ -67,6 +67,9 @@ class MagnetClickFiltersTest extends TestCase
                 $t->timestamp('click_time')->nullable();
             });
         }
+        // On MySQL/MariaDB the CREATE TABLE above commits the test's transaction, so rows a
+        // previous test inserted are still there — start from an empty log every time.
+        $this->database()->table('magnet_clicks')->delete();
         $now = Carbon::now();
         $rows = [];
         foreach ([[1, 1, 1], [1, 1, 2], [1, 1, 3], [2, 1, 1], [3, 2, 20], [3, 2, 25]] as [$magnet, $post, $daysAgo]) {

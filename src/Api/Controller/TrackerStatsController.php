@@ -319,6 +319,12 @@ class TrackerStatsController implements RequestHandlerInterface
      */
     protected function fetchRaw(string $url, int $maxTime): ?string
     {
+        // Tylko http(s) — także dla fallbacku bez cURL, gdzie file_get_contents() otworzyłby
+        // każdy wrapper strumieni (file://, php://…), a nie tylko adres trackera.
+        if (!preg_match('~^https?://~i', $url)) {
+            return null;
+        }
+
         $userAgent = 'Flarum/2.0 HomepageBlocks';
         $connectTimeout = max(2, min($maxTime, 10));
 
@@ -371,7 +377,8 @@ class TrackerStatsController implements RequestHandlerInterface
                 'header' => 'User-Agent: ' . $userAgent . "\r\n",
             ],
         ]);
-        $response = @file_get_contents($url, false, $context);
+        // Ten sam limit treści co w ścieżce cURL (CURLOPT_MAXFILESIZE).
+        $response = @file_get_contents($url, false, $context, 0, self::EXTERNAL_MAX_BYTES);
         return $response !== false ? $response : null;
     }
 }

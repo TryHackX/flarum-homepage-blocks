@@ -130,7 +130,9 @@ class TrackerWhitelistClient
         if (!filter_var($host, FILTER_VALIDATE_IP)) {
             $ips = @gethostbynamel($host) ?: [];
             foreach ($ips as $ip) {
-                if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_RES_RANGE)) return false;
+                // NO_RES_RANGE alone (loopback, link-local, 0/8, 240/4) let a hostname resolve into 10/8,
+                // 172.16/12 or 192.168/16 — the private ranges this guard and its error message promise to refuse.
+                if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_NO_PRIV_RANGE)) return false;
             }
         }
         $this->resolvedBase = $base;

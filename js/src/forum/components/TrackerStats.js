@@ -53,6 +53,10 @@ export default class TrackerStats extends Component {
             clearTimeout(this._refreshTimer);
             this._refreshTimer = null;
         }
+        if (this._onVisible) {
+            document.removeEventListener('visibilitychange', this._onVisible);
+            this._onVisible = null;
+        }
     }
 
     getRefreshInterval() {
@@ -101,7 +105,7 @@ export default class TrackerStats extends Component {
         if (!cache.internalLoaded) {
             return m('div', { className: 'TrackerStats-loading' }, [
                 m(LoadingIndicator, { size: 'small' }),
-                m('span', ' Loading...'),
+                m('span', ' ' + transStr('tryhackx-homepage-blocks.forum.stats_loading')),
             ]);
         }
 
@@ -124,7 +128,7 @@ export default class TrackerStats extends Component {
         if (!cache.externalLoaded && !cache.externalStats) {
             return m('div', { className: 'TrackerStats-loading TrackerStats-external' }, [
                 m(LoadingIndicator, { size: 'small' }),
-                m('span', ' Loading tracker stats...'),
+                m('span', ' ' + transStr('tryhackx-homepage-blocks.forum.stats_loading_external')),
             ]);
         }
 
@@ -177,7 +181,10 @@ export default class TrackerStats extends Component {
         let url = app.forum.attribute('apiUrl') + '/tryhackx/homepage/stats';
         if (query) url += query;
         // Statystyki nie są bramkowane (pasywne, cache'owane po stronie serwera).
-        return app.request({ method: 'GET', url });
+        // Odświeżanie w tle nigdy nie pokazuje alertu: domyślna obsługa błędów Flarum
+        // dokładała czerwony alert przy KAŻDYM nieudanym odpytaniu (np. 503 w trybie
+        // konserwacji co kilka sekund). Błąd i tak ląduje w konsoli (catch wyżej).
+        return app.request({ method: 'GET', url, errorHandler: () => {} });
     }
 
     async loadInternalStats() {
@@ -269,9 +276,26 @@ export default class TrackerStats extends Component {
         if (this._refreshTimer) clearTimeout(this._refreshTimer);
 
         this._refreshTimer = setTimeout(() => {
-            if (!this.destroyed) {
-                this.loadExternalStats();
+            this._refreshTimer = null;
+            if (this.destroyed) return;
+            // Karta w tle nie odpytuje serwera (nikt nie patrzy) — odświeżamy od razu,
+            // gdy znów będzie widoczna.
+            if (document.hidden) {
+                this.refreshWhenVisible();
+                return;
             }
+            this.loadExternalStats();
         }, delay);
+    }
+
+    refreshWhenVisible() {
+        if (this._onVisible) return;
+        this._onVisible = () => {
+            if (document.hidden) return;
+            document.removeEventListener('visibilitychange', this._onVisible);
+            this._onVisible = null;
+            if (!this.destroyed) this.loadExternalStats();
+        };
+        document.addEventListener('visibilitychange', this._onVisible);
     }
 }

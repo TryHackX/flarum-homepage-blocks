@@ -39,16 +39,13 @@ class UserFilter implements FilterInterface
             return;
         }
 
-        // Escape LIKE wildcards in user input
-        $escaped = str_replace(['%', '_'], ['\\%', '\\_'], $value);
-
         // whereExists zamiast join('users') — unika błędu „Not unique table 'users'",
         // gdyby inny filtr/searcher też dołączył tabelę users (audyt C7).
-        $op = $negate ? 'not like' : 'like';
-        $state->getQuery()->whereExists(function ($q) use ($op, $escaped) {
+        // Wpisany tekst dosłownie (także %, _ i \) na każdej bazie — patrz LikeContains.
+        $state->getQuery()->whereExists(function ($q) use ($value, $negate) {
             $q->from('users')
-              ->whereColumn('users.id', 'discussions.user_id')
-              ->where('users.username', $op, '%' . $escaped . '%');
+              ->whereColumn('users.id', 'discussions.user_id');
+            LikeContains::where($q, 'users.username', $value, $negate);
         });
     }
 }

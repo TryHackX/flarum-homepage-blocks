@@ -422,9 +422,11 @@ export default class AdvancedFilters extends Component {
      * Sort uses Flarum sort key names (registered in sortMap) which are
      * resolved through DiscussionListState.sortMap() → API sort string.
      *
-     * If the points rate limiter is enabled for search, a pre-flight check is
-     * performed against the server; when the points bucket is exhausted the IP is
-     * temporarily blocked and a countdown notice is shown instead of running the query.
+     * If the points rate limiter is enabled and the search is heavy (title / user of
+     * 3+ characters, or a range no index can serve — the only requests the server
+     * meters), a pre-flight check is performed against the server; when the points
+     * bucket is exhausted the IP is temporarily blocked and a countdown notice is
+     * shown instead of running the query. Light changes never cost points.
      *
      * The pre-flight is the UX layer (instant countdown before the query fires). The
      * authoritative server-side guard is SearchRateLimitMiddleware on core
@@ -435,11 +437,14 @@ export default class AdvancedFilters extends Component {
     async applyFilters() {
         app.homepageFilters = this.filters;
 
-        // Pre-flight limitera: tylko gdy 'search' jest faktycznie limitowany. Przy
-        // ciężkim wyszukiwaniu (tytuł/użytkownik) żądanie liczników też jest
-        // limitowane — prosimy wtedy o drugi grace, by nie płacić podwójnie.
-        if (guardActiveFor('search')) {
-            const result = await preflightCheck('search', { facets: this.isHeavySearch() });
+        // Pre-flight limitera: tylko gdy 'search' jest limitowany ORAZ to ciężkie
+        // wyszukiwanie — serwer nalicza wyłącznie takie (SearchRateLimitMiddleware /
+        // FacetsController). Lekka zmiana (tag, sortowanie, kierunek, zakres z indeksu)
+        // nie kosztuje nic; wcześniej pre-flight pobierał punkty za KAŻDĄ zmianę, więc gość
+        // dostawał blokadę już po kilku kliknięciach w listy. Żądanie liczników ciężkiego
+        // wyszukiwania też jest limitowane — prosimy o drugi grace, by nie płacić podwójnie.
+        if (guardActiveFor('search') && this.isHeavySearch()) {
+            const result = await preflightCheck('search', { facets: true });
             if (!result.ok) {
                 // Tymczasowa blokada IP — pokaż odliczanie. Inny błąd — wyjdź cicho.
                 // W obu wypadkach nie wykonujemy zapytania.

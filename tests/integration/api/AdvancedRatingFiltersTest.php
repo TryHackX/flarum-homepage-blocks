@@ -42,7 +42,11 @@ class AdvancedRatingFiltersTest extends TestCase
         // The Steam DB score needs POWER(), which MySQL / MariaDB / PostgreSQL have but
         // PHP's bundled SQLite may lack — provide it for this SQLite test run.
         $pdo = $this->database()->getPdo();
-        if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+        if ($pdo instanceof \Pdo\Sqlite) {
+            // PHP 8.4+: Laravel opens the connection with PDO::connect() (driver subclass);
+            // PDO::sqliteCreateFunction() is deprecated since PHP 8.5.
+            $pdo->createFunction('power', 'pow', 2);
+        } elseif ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
             $pdo->sqliteCreateFunction('power', 'pow', 2);
         }
         $now = Carbon::now();

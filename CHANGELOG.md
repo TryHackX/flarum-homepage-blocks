@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.1] - 2026-10-20
+
+### Fixed
+- **Light filter changes no longer cost rate-limit points.** The filter bar ran the
+  limiter's pre-flight for *every* change — a tag, the sort, the direction, an indexed range
+  — although the server meters only heavy searches (title / user of 3+ characters, Steam DB
+  and magnet-click ranges). With a typical budget a guest was blocked after two or three
+  clicks in the lists. The pre-flight now runs only for heavy searches; light changes keep
+  working even while the IP is blocked. Direct heavy API requests are still metered by the
+  middleware.
+- **The token bucket keeps the refill time already waited.** Every successful charge reset
+  the refill clock, so a visitor searching a little more often than every refill period
+  never got points back; the clock now restarts only when the bucket stops being full. New
+  unit test `PointsManagerTest`.
+- **Title / user search takes `%`, `_` and `\` literally on every database.** The LIKE
+  pattern relied on the database's default escape character: a backslash changed the
+  pattern on MySQL/MariaDB/PostgreSQL ("k\s" searched for "ks") and SQLite has no default at
+  all (a typed `%` stayed a wildcard). The pattern now names its own escape character
+  (`Search\LikeContains`). New integration test `TitleUserFilterTest` (SQLite and MariaDB).
+- **Core's sort dropdown shows proper names for this extension's sorts.** While the filter
+  section is collapsed (or off), core's dropdown listed raw `core.forum.index_sort.*_button`
+  keys for the rating / Steam DB / magnet / size / year sorts. They now carry their own
+  labels (en + pl), the rating sorts appear only with tryhackx/flarum-topic-rating, and size
+  / year only while the admin offers them — a stale URL falls back to the default sort.
+- **Tracker stats polling never pops error alerts.** The background refresh used Flarum's
+  default error handling, which shows a new red alert for every failed request — every few
+  seconds while the forum is in maintenance mode or the API errors. Failures now go to the
+  console only. The refresh also pauses while the tab is hidden and runs at once when it is
+  shown again, and the "Loading…" texts are translated.
+- **"Copy" of the tracker URLs works on http pages** (no Clipboard API) and when the browser
+  refuses clipboard access: it falls back to `execCommand('copy')` instead of throwing.
+- A content minimum length of `0` is honoured (it silently became 1); an empty, non-numeric
+  or zero maximum falls back to the default. New unit test `FieldLengthModifierTest`.
+- The whitelist sync's DNS guard also refuses hostnames resolving to private ranges (10/8,
+  172.16/12, 192.168/16), as its description and error message always said; a literal IP
+  typed by the admin is still accepted.
+- External stats: the no-cURL fallback accepts http(s) URLs only and reads at most 2 MB, like
+  the cURL path.
+- Admin index preview: IMDb / Filmweb ratings are shown with one decimal on both sides, so an
+  unchanged "7.0" is no longer highlighted as different from the parser's 7.
+- Test suite: `MagnetClickFiltersTest` starts from an empty click log (on MySQL/MariaDB the
+  test's CREATE TABLE commits the transaction, so a previous test's clicks were counted
+  twice); the SQLite POWER() helper uses `Pdo\Sqlite::createFunction()` on PHP 8.4+.
+
+### Changed
+- README and the admin placeholder use documentation examples (`tracker.example.org`,
+  `203.0.113.10`) for the tracker host list.
+
 ## [2.9.0] - 2026-10-20
 
 ### Fixed

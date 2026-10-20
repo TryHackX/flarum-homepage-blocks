@@ -139,8 +139,11 @@ You can also find the donation option in the extension's admin settings panel.
     (instant countdown before a query fires); to avoid double-billing, a
     successful pre-flight grants a short-lived per-IP *grace* that the
     middleware consumes for the follow-up real request. Only heavy
-    title/user searches are metered — ordinary browsing and short (<3-char)
-    filters are never charged. (A shared cache such as Redis is still
+    searches are metered — a title/user filter of 3+ characters, or a
+    *More filters* range no index can serve (Steam DB score, magnet clicks);
+    ordinary browsing, short (<3-char) filters and light changes (a tag, the
+    sort, an indexed range) are never charged, and the filter bar runs its
+    pre-flight only for heavy searches. (A shared cache such as Redis is still
     recommended if you run several app servers, so the per-IP bucket is
     consistent across nodes.)
 - **Collapsible sections** — Section 1 (tracker + stats) can be
@@ -228,7 +231,7 @@ enabling them (admin → *Index* → *Rebuild index*, or
 | **Content Settings** | Override title and content length limits. |
 | **Rate limiting** | Per-IP points limiter on search/filters. When a visitor runs out of points the IP is temporarily blocked (configurable duration and post-block budget reset). Guests pay an extra per-action cost. |
 | **Tracker whitelist sync** | Enable toggle (reveals the settings), tracker URL, API key ID, API secret (own *Save secret* button — stored server-side only), live-sync timeout, optional bare-hash detection, **Test connection** and **Scan whole forum** with a progress bar (batched, resumable). |
-| ↳ **Only sync magnets that point at our tracker** (2.6.1) | Off by default. When on, a hash is sent only if its magnet link has a `tr=` announce URL on one of the **Tracker hosts** (comma / newline separated hostnames or IPs, e.g. `tryhackx.org, 135.125.236.64`; `host:port` / full URLs accepted, case-insensitive). Hashes without a magnet (bare `btih:` / bare 40-hex) are skipped; the scan reports them as *skipped*. An empty host list sends nothing and is reported on the last-error line. |
+| ↳ **Only sync magnets that point at our tracker** (2.6.1) | Off by default. When on, a hash is sent only if its magnet link has a `tr=` announce URL on one of the **Tracker hosts** (comma / newline separated hostnames or IPs, e.g. `tracker.example.org, 203.0.113.10`; `host:port` / full URLs accepted, case-insensitive). Hashes without a magnet (bare `btih:` / bare 40-hex) are skipped; the scan reports them as *skipped*. An empty host list sends nothing and is reported on the last-error line. |
 | **Advanced filters** (2.8.0) | Master switch (off by default), panel expanded by default, one switch per filter (filters needing a missing extension are greyed out), Type position / field name, extra sorts, **How release data is read from posts** (size sources, units, labels, series rules — placeholders show the defaults) and the **Index** card (status, *Rebuild index*, *Only missing / outdated*, per-discussion preview). After enabling an index-based filter, rebuild the index once; after changing the parser rules, save and rebuild. |
 
 ### Advanced filters — API

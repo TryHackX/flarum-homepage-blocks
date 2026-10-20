@@ -44,13 +44,39 @@ export default class TrackerInfo extends Component {
 
     copyUrls(urls) {
         const text = urls.map((u) => u.trim()).join('\n');
-        navigator.clipboard.writeText(text).then(() => {
+        const copied = () => {
             this.copied = true;
             m.redraw();
             setTimeout(() => {
                 this.copied = false;
                 m.redraw();
             }, 2000);
-        });
+        };
+
+        // The Clipboard API exists only on secure (https) pages and may be refused —
+        // fall back to a selected textarea + execCommand('copy') in both cases.
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(copied, () => {
+                if (this.legacyCopy(text)) copied();
+            });
+        } else if (this.legacyCopy(text)) {
+            copied();
+        }
+    }
+
+    legacyCopy(text) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        let ok = false;
+        try {
+            ok = document.execCommand('copy');
+        } catch (e) {}
+        document.body.removeChild(textarea);
+        return ok;
     }
 }

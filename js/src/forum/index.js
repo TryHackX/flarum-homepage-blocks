@@ -5,7 +5,8 @@ import DiscussionListState from 'flarum/forum/states/DiscussionListState';
 import CollapsibleSection from './components/CollapsibleSection';
 import HomepageMainBlock from './components/HomepageMainBlock';
 import AdvancedFilters from './components/AdvancedFilters';
-import { emptyAdvState } from './utils/advanced';
+import { emptyAdvState, sortEnabled } from './utils/advanced';
+import { transStr } from './utils/trans';
 
 app.initializers.add('tryhackx-homepage-blocks', () => {
     // ── Theme ──
@@ -38,37 +39,49 @@ app.initializers.add('tryhackx-homepage-blocks', () => {
     applyTheme();
     extend(IndexPage.prototype, 'oncreate', applyTheme);
 
-    // Extend Flarum's sort map with our custom sort columns
+    // Extend Flarum's sort map with our custom sort columns. Each entry carries its own
+    // label: for a plain string core's sort dropdown (shown while section 2 is collapsed
+    // or off) looks up `core.forum.index_sort.<key>_button`, which doesn't exist for
+    // these keys — the raw key was shown. Every group is gated on what the server
+    // registers, so the dropdown never offers a sort that would end in an API error and
+    // a stale URL degrades to the default sort.
     extend(DiscussionListState.prototype, 'sortMap', function (map) {
-        map.most_rated = '-rating_average';
-        map.least_rated = 'rating_average';
-        map.most_rating_count = '-rating_count';
-        map.least_rating_count = 'rating_count';
-        map.recently_rated = '-last_rated_at';
-        map.oldest_rated = 'last_rated_at';
-        // "Steam DB" confidence-weighted rating (avg + number of ratings).
-        map.steamdb = '-steamRating';
-        map.steamdb_asc = 'steamRating';
+        const add = (key, sort) => {
+            map[key] = { sort, label: transStr('tryhackx-homepage-blocks.forum.index_sort.' + key) };
+        };
 
-        // Magnet-click sorts — resolve the friendly aliases to the API sort
-        // fields registered by tryhackx/flarum-magnet-link. Gated on that
-        // extension being enabled (same signal as the dropdown options) so a
-        // stale URL degrades to the default sort instead of an API error.
-        if (typeof app.forum.attribute('magnetClickTracking') !== 'undefined') {
-            map.most_magnet_clicks = '-magnetClicksTotal';
-            map.least_magnet_clicks = 'magnetClicksTotal';
-            map.most_magnet_clicks_single = '-magnetClicksMax';
-            map.least_magnet_clicks_single = 'magnetClicksMax';
-            map.recently_magnet_clicked = '-magnetLastClicked';
-            map.oldest_magnet_clicked = 'magnetLastClicked';
+        // tryhackx/flarum-topic-rating (its columns + the "Steam DB" confidence-weighted rating).
+        if (typeof app.forum.attribute('tryhackxHomepageHasRating') !== 'undefined') {
+            add('most_rated', '-rating_average');
+            add('least_rated', 'rating_average');
+            add('most_rating_count', '-rating_count');
+            add('least_rating_count', 'rating_count');
+            add('recently_rated', '-last_rated_at');
+            add('oldest_rated', 'last_rated_at');
+            add('steamdb', '-steamRating');
+            add('steamdb_asc', 'steamRating');
         }
 
-        // Advanced Filters index sorts — always registered server-side (Sort\MetaSort),
-        // so the aliases are safe even while the options are hidden.
-        map.hb_size_desc = '-hbSize';
-        map.hb_size_asc = 'hbSize';
-        map.hb_year_desc = '-hbYear';
-        map.hb_year_asc = 'hbYear';
+        // Magnet-click sorts — resolve the friendly aliases to the API sort
+        // fields registered by tryhackx/flarum-magnet-link.
+        if (typeof app.forum.attribute('magnetClickTracking') !== 'undefined') {
+            add('most_magnet_clicks', '-magnetClicksTotal');
+            add('least_magnet_clicks', 'magnetClicksTotal');
+            add('most_magnet_clicks_single', '-magnetClicksMax');
+            add('least_magnet_clicks_single', 'magnetClicksMax');
+            add('recently_magnet_clicked', '-magnetLastClicked');
+            add('oldest_magnet_clicked', 'magnetLastClicked');
+        }
+
+        // Advanced Filters index sorts (Sort\MetaSort) — only while the admin offers them.
+        if (sortEnabled('size')) {
+            add('hb_size_desc', '-hbSize');
+            add('hb_size_asc', 'hbSize');
+        }
+        if (sortEnabled('year')) {
+            add('hb_year_desc', '-hbYear');
+            add('hb_year_asc', 'hbYear');
+        }
     });
 
     // Initialize global filter state with defaults matching option keys in AdvancedFilters

@@ -36,13 +36,7 @@ class TitleFilter implements FilterInterface
             return;
         }
 
-        // Escape LIKE wildcards in user input
-        $escaped = str_replace(['%', '_'], ['\\%', '\\_'], $value);
-
-        $state->getQuery()->where(
-            'discussions.title',
-            $negate ? 'not like' : 'like',
-            '%' . $escaped . '%'
-        );
+        // Wpisany tekst dosłownie (także %, _ i \) na każdej bazie — patrz LikeContains.
+        LikeContains::where($state->getQuery(), 'discussions.title', $value, $negate);
     }
 }

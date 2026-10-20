@@ -199,7 +199,7 @@ export default function registerWhitelistSettings() {
                                 className: 'FormControl HomepageBlocks-whitelistTrackerHosts',
                                 disabled: hostsDis,
                                 tabindex: hostsDis ? -1 : 0,
-                                placeholder: 'tryhackx.org, 135.125.236.64',
+                                placeholder: 'tracker.example.org, 203.0.113.10',
                                 autocomplete: 'off',
                                 value: this.setting(S + '.whitelist_tracker_hosts')() || '',
                                 oninput: (e) => this.setting(S + '.whitelist_tracker_hosts')(e.target.value),

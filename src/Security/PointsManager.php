@@ -177,8 +177,14 @@ class PointsManager
                 return ['ok' => false, 'balance' => (float) $state['balance']];
             }
 
+            // Zegar odnawiania startuje od nowa tylko, gdy kubełek przestaje być pełny. W innym
+            // razie `ts` zostaje tam, gdzie zostawił go applyRefill(): reset przy każdym pobraniu
+            // gubił już odczekaną część okresu, więc ktoś szukający nieco częściej niż co
+            // refill_seconds nigdy nie odzyskiwał punktów.
+            if ($state['balance'] >= $this->getStart()) {
+                $state['ts'] = time();
+            }
             $state['balance'] = max(0.0, $state['balance'] - $cost);
-            $state['ts'] = time();
             $this->writeState($ip, $state);
             return ['ok' => true, 'balance' => (float) $state['balance']];
         }, true, ['ok' => false, 'balance' => 0.0]); // fail-closed: brak locka → DENY (audyt H2)

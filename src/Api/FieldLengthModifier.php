@@ -42,8 +42,8 @@ class FieldLengthModifier
         }
 
         // Kolumna varchar(200): min >= 1, max <= 200.
-        $min = max(1, (int) ($this->settings->get('tryhackx-homepage-blocks.title_min_length') ?: 3));
-        $max = min(200, max($min, (int) ($this->settings->get('tryhackx-homepage-blocks.title_max_length') ?: 200)));
+        $min = max(1, $this->number('title_min_length') ?? 3);
+        $max = min(200, max($min, $this->positive('title_max_length') ?? 200));
 
         return $this->replaceMinMax($field, $min, $max);
     }
@@ -59,8 +59,8 @@ class FieldLengthModifier
         }
 
         // Kolumna mediumtext: min >= 0, max <= 16 000 000.
-        $min = max(0, (int) ($this->settings->get('tryhackx-homepage-blocks.content_min_length') ?: 1));
-        $max = min(16000000, max($min, (int) ($this->settings->get('tryhackx-homepage-blocks.content_max_length') ?: 500000)));
+        $min = max(0, $this->number('content_min_length') ?? 1);
+        $max = min(16000000, max($min, $this->positive('content_max_length') ?? 500000));
 
         return $this->replaceMinMax($field, $min, $max);
     }
@@ -68,6 +68,26 @@ class FieldLengthModifier
     protected function enabled(string $key): bool
     {
         return (bool) $this->settings->get('tryhackx-homepage-blocks.' . $key);
+    }
+
+    /**
+     * Liczba z ustawienia albo null (puste / nieliczbowe = domyślna). Wcześniejsze `?: domyślna`
+     * traktowało też „0” jak puste — minimalna długość treści 0 (dozwolona w panelu i w README)
+     * po cichu stawała się 1.
+     */
+    protected function number(string $key): ?int
+    {
+        $raw = $this->settings->get('tryhackx-homepage-blocks.' . $key);
+
+        return is_numeric($raw) ? (int) $raw : null;
+    }
+
+    /** Jak number(), ale maksimum 0 (lub mniej) nic nie znaczy — wtedy domyślna. */
+    protected function positive(string $key): ?int
+    {
+        $value = $this->number($key);
+
+        return $value !== null && $value > 0 ? $value : null;
     }
 
     /**
