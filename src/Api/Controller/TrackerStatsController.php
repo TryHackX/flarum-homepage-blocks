@@ -349,8 +349,14 @@ class TrackerStatsController implements RequestHandlerInterface
                     curl_setopt($ch, CURLOPT_MAXREDIRS, 3);
                     // http(s) only, also after redirects, and a bounded body: the stats
                     // page is a few KB, a misbehaving host must not fill PHP memory.
-                    curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
-                    curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+                    // The *_STR options replace the bitmask ones deprecated in libcurl 7.85.
+                    if (defined('CURLOPT_PROTOCOLS_STR') && defined('CURLOPT_REDIR_PROTOCOLS_STR')) {
+                        curl_setopt($ch, CURLOPT_PROTOCOLS_STR, 'http,https');
+                        curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS_STR, 'http,https');
+                    } else {
+                        curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+                        curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+                    }
                     curl_setopt($ch, CURLOPT_MAXFILESIZE, self::EXTERNAL_MAX_BYTES);
                     curl_setopt($ch, CURLOPT_NOPROGRESS, false);
                     curl_setopt($ch, CURLOPT_PROGRESSFUNCTION, static fn ($ch, $dlTotal, $dlNow): int => $dlNow > self::EXTERNAL_MAX_BYTES ? 1 : 0);

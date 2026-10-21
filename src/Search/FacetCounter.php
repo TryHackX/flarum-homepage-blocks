@@ -226,13 +226,26 @@ class FacetCounter
      * The discussion FilterManager exactly as core builds it for DiscussionSearcher
      * (SearchServiceProvider::boot) — every filter registered through
      * Extend\SearchDriver included — since that instance itself isn't reachable.
+     *
+     * Those registries are core internals. Should a future core rename or reshape them, fail
+     * loudly (a logged error; the list shows no counts) instead of counting without the
+     * filters — plausible-looking but wrong numbers.
      */
     protected function filterManager(): FilterManager
     {
-        $fulltextClass = Arr::get($this->container->make('flarum.search.fulltext'), DiscussionSearcher::class);
+        $filters = $this->container->bound('flarum.search.filters')
+            ? Arr::get($this->container->make('flarum.search.filters'), DiscussionSearcher::class)
+            : null;
+        if (!is_array($filters) || $filters === []) {
+            throw new \RuntimeException('Facet counts: no discussion filters registered under flarum.search.filters (core internals changed?)');
+        }
+
+        $fulltextClass = $this->container->bound('flarum.search.fulltext')
+            ? Arr::get($this->container->make('flarum.search.fulltext'), DiscussionSearcher::class)
+            : null;
         $manager = new FilterManager($fulltextClass ? $this->container->make($fulltextClass) : null);
 
-        foreach (Arr::get($this->container->make('flarum.search.filters'), DiscussionSearcher::class, []) as $filter) {
+        foreach ($filters as $filter) {
             $manager->add($this->container->make($filter));
         }
 

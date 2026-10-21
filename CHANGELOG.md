@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.2] - 2026-10-21
+
+### Changed
+- **Saving a post no longer waits for the tracker.** The live whitelist sync (new, edited or
+  approved post) used to run inside the request, so a slow tracker added up to the configured
+  timeout to the save. Under PHP-FPM it now runs after the response has been sent; CLI and other
+  SAPIs keep running it immediately.
+- Facet counts fail loudly (logged error, no counts shown) if core's internal search-filter
+  registry is ever renamed or reshaped, instead of counting without the active filters.
+- External tracker stats use `CURLOPT_PROTOCOLS_STR` / `CURLOPT_REDIR_PROTOCOLS_STR` where
+  available (the bitmask options are deprecated in libcurl 7.85), like the whitelist client.
+
 ## [2.9.1] - 2026-10-20
 
 ### Fixed

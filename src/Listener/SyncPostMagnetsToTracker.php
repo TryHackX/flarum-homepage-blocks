@@ -19,8 +19,11 @@ use TryHackX\HomepageBlocks\Service\WhitelistScanner;
  *    tracker there would keep that transaction (and its row locks) open for up to the configured
  *    timeout, and would whitelist hashes of a save that is later rolled back. Deferred through
  *    Connection::afterCommit(): immediate when no transaction is open, dropped on rollback.
+ *  - Under PHP-FPM the call runs AFTER the response has been sent (fastcgi_finish_request() in a
+ *    shutdown function): the member never waits for the tracker, even a slow one. CLI, tests and
+ *    other SAPIs run it right away, as before.
  *  - Bounded by the configured timeout (1–10 s) and skipped entirely while the client is in
- *    failure cooldown — a dead tracker never slows the forum by more than one attempt per window.
+ *    failure cooldown — a dead tracker holds a PHP worker for at most one attempt per window.
  *  - NEVER throws into the request; failures are logged once per cooldown window.
  *  - Posted covers the first post of a new discussion (Discussion\Event\Started is not needed).
  *    Deleted/Hidden/Restored are intentionally NOT handled: the tracker API is additive-only —
@@ -29,6 +32,9 @@ use TryHackX\HomepageBlocks\Service\WhitelistScanner;
 class SyncPostMagnetsToTracker
 {
     private static bool $loggedThisRequest = false;
+
+    /** @var callable[] syncs waiting for the response to be sent ({@see later()}) */
+    private static array $deferred = [];
 
     public function __construct(
         private TrackerWhitelistClient $client,
@@ -44,10 +50,34 @@ class SyncPostMagnetsToTracker
         try {
             $post = $event->post ?? null;
             if (!$post instanceof CommentPost || !$this->client->isEnabled()) return;
-            $this->afterCommit(fn () => $this->sync($post));
+            $this->afterCommit(fn () => $this->later(fn () => $this->sync($post)));
         } catch (\Throwable $e) {
             $this->logOnce('whitelist sync error: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Run $fn once the response is on its way. Under PHP-FPM the first deferred sync registers a
+     * shutdown function that finishes the request and then drains the queue; anywhere else
+     * (CLI, tests, mod_php) it runs now. sync() never throws, so one failure can't skip the rest.
+     */
+    private function later(callable $fn): void
+    {
+        if (PHP_SAPI !== 'fpm-fcgi' || !function_exists('fastcgi_finish_request')) {
+            $fn();
+            return;
+        }
+        if (!self::$deferred) {
+            register_shutdown_function(static function (): void {
+                fastcgi_finish_request();
+                $queue = self::$deferred;
+                self::$deferred = [];
+                foreach ($queue as $deferred) {
+                    $deferred();
+                }
+            });
+        }
+        self::$deferred[] = $fn;
     }
 
     /**
