@@ -34,6 +34,8 @@ class WhitelistTestController implements RequestHandlerInterface
         $r = $this->client->ping($override ?: null);
         $json = $r['json'] ?? [];
         $serverTime = isset($json['server_time']) ? (int) $json['server_time'] : null;
+        $describe = in_array($json['describe'] ?? null, ['off', 'queue', 'publish'], true) ? $json['describe'] : null;
+        if ($r['ok'] && $describe !== null && $describe !== 'off') $this->client->resumeDescribe();
         return new JsonResponse([
             'ok' => (bool) $r['ok'],
             'http_status' => (int) $r['status'],
@@ -43,6 +45,7 @@ class WhitelistTestController implements RequestHandlerInterface
             'mode' => $json['mode'] ?? null,
             'whitelist_count' => isset($json['whitelist_count']) ? (int) $json['whitelist_count'] : null,
             'client' => $json['client'] ?? null,
+            'describe' => $describe,
             'elapsed_ms' => (int) $r['elapsed_ms'],
             'last_error' => $this->client->lastError(),
         ]);

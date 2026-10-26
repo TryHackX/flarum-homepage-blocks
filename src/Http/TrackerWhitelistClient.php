@@ -5,6 +5,7 @@ namespace TryHackX\HomepageBlocks\Http;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Psr\Log\LoggerInterface;
 use TryHackX\HomepageBlocks\Cache\Store;
+use TryHackX\HomepageBlocks\Service\DescriptionPayload;
 use TryHackX\HomepageBlocks\Service\MagnetExtractor;
 
 /**
@@ -31,8 +32,11 @@ class TrackerWhitelistClient
     public const KEY_ID_RE = '/^[a-f0-9]{16}$/i';
     public const SECRET_RE = '/^[a-f0-9]{64}$/i';
     public const TOKEN_RE = '/^([a-f0-9]{16})\.([a-f0-9]{64})$/i';
+    public const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+    private const DESCRIBE_OFF_SECONDS = 600;
     private const BACKOFF_KEY = 'whitelist:backoff';
     private const LAST_ERROR_KEY = 'whitelist:last_error';
+    private const DESCRIBE_OFF_KEY = 'whitelist:describe_off';
     private const MAX_RESPONSE_BYTES = 262144;
 
     /** Base URL that already passed the DNS / reserved-range check in this process (scan batches reuse it). */
@@ -73,6 +77,29 @@ class TrackerWhitelistClient
     {
         $v = $this->settings->get(self::S . '.whitelist_detect_bare_hashes');
         return $v === true || $v === '1' || $v === 1 || $v === 'true';
+    }
+
+    public function describeEnabled(): bool
+    {
+        $v = $this->settings->get(self::S . '.whitelist_describe_enabled');
+        return $this->isEnabled() && ($v === true || $v === '1' || $v === 1 || $v === 'true');
+    }
+
+    public function describePaused(): bool
+    {
+        $r = $this->store->read(self::DESCRIBE_OFF_KEY);
+        if (!$r || empty($r['value']['until'])) return false;
+        return (int) $r['value']['until'] > time();
+    }
+
+    public function resumeDescribe(): void
+    {
+        try { $this->store->write(self::DESCRIBE_OFF_KEY, ['until' => 0], 5); } catch (\Throwable $e) {}
+    }
+
+    private function pauseDescribe(): void
+    {
+        try { $this->store->write(self::DESCRIBE_OFF_KEY, ['until' => time() + self::DESCRIBE_OFF_SECONDS], self::DESCRIBE_OFF_SECONDS + 5); } catch (\Throwable $e) {}
     }
 
     /** "Only sync magnets that point at our tracker" (default off). */
@@ -204,10 +231,35 @@ class TrackerWhitelistClient
         return $this->request('POST', 'v1/whitelist/submit', ['items' => array_values($items), 'source' => $source], $timeout ?? $this->timeoutSeconds());
     }
 
+    public function describe(array $topics, int $maxChars, ?int $timeout = null): array
+    {
+        if (!$topics) return ['ok' => true, 'status' => 0, 'json' => ['results' => [], 'summary' => []], 'error' => null, 'elapsed_ms' => 0];
+        if ($this->describePaused()) return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'describe_off', 'elapsed_ms' => 0];
+        $r = $this->request('POST', 'v1/whitelist/describe', DescriptionPayload::body($topics, $maxChars), $timeout ?? $this->timeoutSeconds());
+        if ($r['ok'] && ($r['json']['ok'] ?? true) === false) {
+            $r['ok'] = false;
+            $r['error'] = (string) ($r['json']['error'] ?? 'describe_failed');
+            if ($r['error'] === 'describe_off') $this->pauseDescribe();
+        }
+        return $r;
+    }
+
     /** Health check; $override = ['api_url','api_key_id','api_secret'] for unsaved admin values. */
     public function ping(?array $override = null, int $timeout = 6): array
     {
         return $this->request('GET', 'v1/whitelist/ping', null, $timeout, $override);
+    }
+
+    public static function retryAfterSeconds(?string $header, int $default = 30): int
+    {
+        $header = trim((string) $header);
+        if (preg_match('/^\d+$/', $header)) {
+            $seconds = (int) $header;
+        } else {
+            $at = $header !== '' ? strtotime($header) : false;
+            $seconds = $at !== false ? $at - time() : $default;
+        }
+        return max(1, min(3600, $seconds));
     }
 
     private function request(string $method, string $endpoint, ?array $body, int $timeout, ?array $override = null): array
@@ -233,6 +285,7 @@ class TrackerWhitelistClient
         $ch = curl_init($url);
         if ($ch === false) return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'curl_init_failed', 'elapsed_ms' => 0];
         $headers = ['Accept: application/json', 'Authorization: Bearer ' . $keyId . '.' . $secret, 'Expect:'];
+        $retryAfter = null;
         $opts = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
@@ -242,6 +295,10 @@ class TrackerWhitelistClient
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_USERAGENT => 'Flarum/2.0 HomepageBlocks-WhitelistSync',
             CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$retryAfter): int {
+                if (stripos($line, 'retry-after:') === 0) $retryAfter = trim(substr($line, 12));
+                return strlen($line);
+            },
         ];
         if (defined('CURLOPT_PROTOCOLS_STR')) $opts[CURLOPT_PROTOCOLS_STR] = 'http,https';
         elseif (defined('CURLOPT_PROTOCOLS')) $opts[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
@@ -249,7 +306,7 @@ class TrackerWhitelistClient
         if (defined('CURLOPT_MAXFILESIZE')) $opts[CURLOPT_MAXFILESIZE] = self::MAX_RESPONSE_BYTES;
         if ($method === 'POST') {
             $opts[CURLOPT_POST] = true;
-            $opts[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            $opts[CURLOPT_POSTFIELDS] = json_encode($body, self::JSON_FLAGS);
             $headers[] = 'Content-Type: application/json';
             $opts[CURLOPT_HTTPHEADER] = $headers;
         }
@@ -274,8 +331,11 @@ class TrackerWhitelistClient
             $this->noteError('Tracker returned HTTP ' . $status . ' — check the key ID / secret in settings; the tracker may also have banned this server\'s IP (see its API bans panel).');
             return ['ok' => false, 'status' => $status, 'json' => $json, 'error' => 'forbidden', 'elapsed_ms' => $elapsed];
         }
+        if ($status === 413) {
+            return ['ok' => false, 'status' => $status, 'json' => $json, 'error' => 'http_413' . ($json && isset($json['error']) ? ':' . $json['error'] : ''), 'elapsed_ms' => $elapsed];
+        }
         if ($status < 200 || $status >= 300) {
-            $this->setCooldown($status >= 500 ? 60 : 30, 'http_' . $status);
+            $this->setCooldown($status === 429 ? self::retryAfterSeconds($retryAfter) : ($status >= 500 ? 60 : 30), 'http_' . $status);
             $this->noteError('Tracker returned HTTP ' . $status . ($json && isset($json['error']) ? ' (' . $json['error'] . ')' : ''));
             return ['ok' => false, 'status' => $status, 'json' => $json, 'error' => 'http_' . $status . ($json && isset($json['error']) ? ':' . $json['error'] : ''), 'elapsed_ms' => $elapsed];
         }

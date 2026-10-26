@@ -17,6 +17,8 @@ function sectionHeader(title) {
     };
 }
 
+const DESCRIBE_COUNTERS = ['described', 'unchanged', 'kept', 'too_long', 'invalid', 'skipped'];
+
 export default function registerWhitelistSettings() {
     const t = (k, params) => app.translator.trans(S + '.admin.whitelist.' + k, params);
     const apiUrl = () => app.forum.attribute('apiUrl');
@@ -28,7 +30,7 @@ export default function registerWhitelistSettings() {
         secretMsg: null,
         testBusy: false,
         testResult: null,
-        scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0 },
+        scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false },
     };
 
     function secretIsSet() {
@@ -64,7 +66,9 @@ export default function registerWhitelistSettings() {
         try {
             const res = await app.request({ method: 'POST', url: apiUrl() + '/tryhackx/homepage/whitelist/test', body });
             if (res.ok) {
-                st.testResult = { ok: true, text: t('test_ok', { count: res.whitelist_count === null || res.whitelist_count === undefined ? '?' : res.whitelist_count, mode: res.mode || '?', skew: res.skew_seconds || 0, ms: res.elapsed_ms || 0 }) };
+                const describe = res.describe ? ' ' + t('test_describe', { mode: t('describe_mode_' + res.describe) })
+                    : settingIsTruthy(page.setting(S + '.whitelist_describe_enabled')()) ? ' ' + t('test_describe_unknown') : '';
+                st.testResult = { ok: true, text: t('test_ok', { count: res.whitelist_count === null || res.whitelist_count === undefined ? '?' : res.whitelist_count, mode: res.mode || '?', skew: res.skew_seconds || 0, ms: res.elapsed_ms || 0 }) + describe };
             } else {
                 const hint = (res.http_status === 403 || res.http_status === 401) ? ' ' + t('test_forbidden_hint') : res.error === 'invalid_credentials' ? ' ' + t('test_invalid_credentials_hint') : '';
                 st.testResult = { ok: false, text: t('test_fail', { error: res.error || ('HTTP ' + res.http_status) }) + hint };
@@ -78,7 +82,7 @@ export default function registerWhitelistSettings() {
     async function runScan(resume) {
         const s = st.scan;
         if (s.running) return;
-        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0 });
+        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false });
         s.running = true; s.cancel = false; s.error = null; m.redraw();
         while (!s.done && !s.cancel) {
             let res;
@@ -101,6 +105,11 @@ export default function registerWhitelistSettings() {
             s.hashes += res.hashes_found;
             s.skipped += res.skipped_no_tracker || 0; // "only our tracker" filter (older backends omit the field)
             s.sent += res.sent; s.added += res.added; s.exists += res.exists; s.banned += res.banned; s.invalid += res.invalid;
+            if (res.describe) {
+                s.describe = s.describe || {};
+                DESCRIBE_COUNTERS.forEach((k) => { s.describe[k] = (s.describe[k] || 0) + (res.describe[k] || 0); });
+                if (res.describe.off) s.describeOff = true;
+            }
             s.done = !!res.done;
             m.redraw();
         }
@@ -208,6 +217,14 @@ export default function registerWhitelistSettings() {
                         ]),
                     ]),
 
+                    m('div', { className: 'HomepageBlocks-whitelistField' }, [
+                        m('label', { className: 'checkbox' }, [
+                            m('input', { type: 'checkbox', className: 'HomepageBlocks-whitelistDescribe', disabled: dis, tabindex: dis ? -1 : 0, checked: settingIsTruthy(this.setting(S + '.whitelist_describe_enabled')()), onchange: (e) => this.setting(S + '.whitelist_describe_enabled')(e.target.checked ? '1' : '0') }),
+                            ' ', t('describe'),
+                        ]),
+                        m('div', { className: 'helpText' }, t('describe_help')),
+                    ]),
+
                     // Test connection
                     m('div', { className: 'HomepageBlocks-whitelistActions' }, [
                         m('button', { type: 'button', className: 'Button', disabled: dis || st.testBusy, onclick: () => testConnection(page) }, [
@@ -229,6 +246,8 @@ export default function registerWhitelistSettings() {
                         (s.running || s.processed > 0 || s.error) ? m('div', { className: 'HomepageBlocks-progress' }, [
                             m('div', { className: 'HomepageBlocks-progressBar' }, m('div', { className: 'HomepageBlocks-progressFill' + (s.error ? ' is-error' : s.done ? ' is-done' : ''), style: 'width:' + pct + '%' })),
                             m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress', { processed: s.processed, total: s.total === null ? '?' : s.total, hashes: s.hashes, skipped: s.skipped, added: s.added, exists: s.exists, banned: s.banned })),
+                            s.describe ? m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress_describe', { described: s.describe.described, unchanged: s.describe.unchanged, kept: s.describe.kept, tooLong: s.describe.too_long, invalid: s.describe.invalid, skipped: s.describe.skipped })) : null,
+                            s.describeOff ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_describe_off')) : null,
                             s.error ? m('div', { className: 'HomepageBlocks-err' }, s.error) : null,
                             s.cancel && !s.running ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_cancelled')) : null,
                         ]) : null,

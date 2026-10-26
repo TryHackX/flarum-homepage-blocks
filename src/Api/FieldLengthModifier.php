@@ -23,6 +23,8 @@ use Psr\Log\LoggerInterface;
  */
 class FieldLengthModifier
 {
+    public const CORE_CONTENT_MAX_LENGTH = 63000;
+
     /** Strażnik: ostrzeżenie o nieudanym nadpisaniu reguł logujemy raz na proces (patrz catch w replaceMinMax). */
     private static bool $overrideFailureLogged = false;
 
@@ -58,11 +60,22 @@ class FieldLengthModifier
             return $field;
         }
 
-        // Kolumna mediumtext: min >= 0, max <= 16 000 000.
-        $min = max(0, $this->number('content_min_length') ?? 1);
-        $max = min(16000000, max($min, $this->positive('content_max_length') ?? 500000));
+        return $this->replaceMinMax($field, $this->contentMinLength(), $this->contentMaxLength());
+    }
 
-        return $this->replaceMinMax($field, $min, $max);
+    public function contentMaxLength(): int
+    {
+        if (! $this->enabled('content_length_enabled')) {
+            return self::CORE_CONTENT_MAX_LENGTH;
+        }
+
+        // Kolumna mediumtext: min >= 0, max <= 16 000 000.
+        return min(16000000, max($this->contentMinLength(), $this->positive('content_max_length') ?? 500000));
+    }
+
+    protected function contentMinLength(): int
+    {
+        return max(0, $this->number('content_min_length') ?? 1);
     }
 
     protected function enabled(string $key): bool

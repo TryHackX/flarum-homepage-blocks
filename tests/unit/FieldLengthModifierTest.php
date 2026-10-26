@@ -93,6 +93,34 @@ class FieldLengthModifierTest extends TestCase
     }
 
     #[Test]
+    public function the_content_limit_is_cores_while_the_override_is_off(): void
+    {
+        $this->assertSame(63000, $this->modifier([])->contentMaxLength());
+        $this->assertSame(63000, $this->modifier(['content_length_enabled' => '0', 'content_max_length' => '500000'])->contentMaxLength());
+    }
+
+    #[Test]
+    public function the_content_limit_is_the_one_the_override_validates_with(): void
+    {
+        $cases = [
+            [['content_max_length' => '500000'], 500000],
+            [[], 500000],
+            [['content_max_length' => '0'], 500000],
+            [['content_max_length' => '1000'], 1000],
+            [['content_max_length' => '99999999'], 16000000],
+            [['content_min_length' => '2000', 'content_max_length' => '1000'], 2000],
+        ];
+        foreach ($cases as [$values, $expected]) {
+            $modifier = $this->modifier(['content_length_enabled' => '1'] + $values);
+            $field = Str::make('content')->minLength(1)->maxLength(63000);
+            $modifier->applyContent($field);
+
+            $this->assertSame($expected, $modifier->contentMaxLength());
+            $this->assertContains('max:' . $expected, $this->rules($field));
+        }
+    }
+
+    #[Test]
     public function nothing_changes_while_the_override_is_off(): void
     {
         $field = Str::make('title')->minLength(3)->maxLength(80);

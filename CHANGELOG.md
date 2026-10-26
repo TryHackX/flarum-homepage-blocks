@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-10-26
+
+> **Topic descriptions for the tracker** — the whitelist sync can also send each topic's first
+> post to the tracker, which shows it as the description of the topic's torrents
+> (tryhackx-tracker 1.78.0, `v1/whitelist/describe`). **PHP + frontend + locales**, no migration.
+> Off by default: with the new switch off the sync behaves exactly as before.
+
+### Added
+- **Send topic descriptions to the tracker** — a new switch in the whitelist settings (off by
+  default, inert while the sync itself is off). Once the magnets of a discussion's first post
+  are synced, that post goes to the tracker: its source text exactly as the author typed it
+  (Flarum's unparsed text, not the stored XML), its length in characters, the author (id and
+  display name; none for a deleted user), the last edit time, the discussion link and the
+  eligible hashes found in it — same extraction and same "only our tracker" filter as the
+  magnet sync, at most 20 per topic (more are sent as several topics of the same post). Replies
+  never send a description. The forum's own content limit goes with every request as
+  `max_chars` — the *Maximum content length* of the Content Settings while *Enable content
+  length modification* is on, core's 63,000 characters while it is off (the same value the
+  forum validates posts with, from one method, `FieldLengthModifier::contentMaxLength()`). A
+  post longer than that limit (written before it was lowered) is sent without its text, with
+  its length only; the tracker keeps descriptions up to that limit, at most 1,000,000
+  characters. New posts, edits and approvals are sent live, after the response, like the
+  magnets.
+- **Scan whole forum sends and refreshes descriptions** — after a batch's magnets are accepted,
+  the batch's first posts with hashes are sent in calls of at most 25 topics and about 3.5 MB,
+  inside the batch's time budget. When the budget runs out half-way, the next batch starts
+  after the last post whose description went out (re-sending its magnets is harmless), so no
+  topic is skipped; a failed call keeps the cursor and offers Resume, like a failed magnet
+  submit. The progress line shows the description counters: accepted (created, queued,
+  updated, replaced or proposed), unchanged, kept, too long, invalid and skipped.
+- **Test connection shows the description mode** the tracker reports for the key: off, held
+  for its moderators, or published at once.
+
+### Changed
+- **A post awaiting approval syncs nothing** — neither magnets nor description — until
+  flarum/approval approves it (the approval event syncs it). The check is explicit now instead
+  of relying on the private flag alone, and the forum scan leaves unapproved posts out too
+  (when the `is_approved` column exists).
+- The tracker's "descriptions off" answer is not treated as a connection failure: magnets keep
+  syncing, descriptions pause for 10 minutes (or until a Test connection shows them on again)
+  and the scan reports it once.
+- A `413 Payload Too Large` answer no longer puts the tracker client into its failure cooldown:
+  a description call is split and sent again (a single topic still too large goes without its
+  text). After a `429` the cooldown follows the tracker's `Retry-After` (1 s – 1 h) instead of a
+  fixed 30 s.
+- `js/package.json` carries the release version again (it still said 2.8.2).
+- `FieldLengthModifier::contentMaxLength()` is the one place that computes the forum's content
+  limit; the content length override applies the same value.
+- New unit tests `DescriptionPayloadTest` and `DescribeTopicsTest`, `FieldLengthModifierTest`
+  covers the content limit; `WhitelistSyncAfterCommitTest` covers descriptions on the live path
+  (first post, reply, edit, approval) and in the forum scan, including the sent limit.
+
 ## [2.9.2] - 2026-10-21
 
 ### Changed

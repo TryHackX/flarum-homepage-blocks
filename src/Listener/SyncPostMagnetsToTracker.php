@@ -102,7 +102,7 @@ class SyncPostMagnetsToTracker
     {
         try {
             if ($this->client->inCooldown() || !$this->client->isConfigured()) return;
-            if ($post->hidden_at !== null || !empty($post->is_private)) return;
+            if ($post->hidden_at !== null || !empty($post->is_private) || !($post->is_approved ?? true)) return;
             $discussion = $post->discussion;
             if ($discussion && ($discussion->hidden_at !== null || !empty($discussion->is_private))) return;
 
@@ -110,10 +110,23 @@ class SyncPostMagnetsToTracker
             if ($r !== null && !$r['ok']) {
                 $this->logOnce('whitelist sync failed for post ' . $post->id . ': ' . ($r['error'] ?? 'unknown')
                     . (($r['status'] ?? 0) === 403 || ($r['status'] ?? 0) === 401 ? ' — check the API key/secret; the tracker may have banned this server IP' : ''));
+                return;
+            }
+            if ($r === null || !$discussion || !$this->client->describeEnabled() || !$this->isFirstPost($post, $discussion)) return;
+
+            $d = $this->scanner->describePost($post, $r['hashes'] ?? []);
+            if ($d !== null && !$d['ok'] && !$d['off']) {
+                $this->logOnce('whitelist describe failed for discussion ' . $post->discussion_id . ': ' . ($d['error'] ?? 'unknown'));
             }
         } catch (\Throwable $e) {
             $this->logOnce('whitelist sync error: ' . $e->getMessage());
         }
+    }
+
+    private function isFirstPost(CommentPost $post, $discussion): bool
+    {
+        $firstPostId = $discussion->first_post_id ?? $discussion->newQuery()->whereKey($discussion->getKey())->value('first_post_id');
+        return (int) $firstPostId === (int) $post->id;
     }
 
     private function logOnce(string $message): void

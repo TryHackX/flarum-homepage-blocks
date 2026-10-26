@@ -172,6 +172,10 @@ You can also find the donation option in the extension's admin settings panel.
   never block a post: short timeout + failure cooldown + one-line logging.
   The API secret is stored server-side only (never sent to the admin
   frontend) and saved through its own endpoint.
+- **Topic descriptions for the tracker** (2.10.0) — optionally, the first
+  post of every topic with synced magnets is sent to the tracker as the
+  description of its torrents (see
+  [Tracker whitelist sync — topic descriptions](#tracker-whitelist-sync--topic-descriptions)).
 - **Polish & English locales** — fully translated UI.
 
 ## Requirements
@@ -184,7 +188,8 @@ You can also find the donation option in the extension's admin settings panel.
   ≥ 1.2.0 with `tracker_mode = whitelist`, an API client created in its admin
   panel (Whitelist → API clients) and the tracker's *API ban exempt IPs* list
   containing this forum's outbound IP (a wrong secret from a non-exempt IP is
-  banned for 30 days by design).
+  banned for 30 days by design). Topic descriptions need tryhackx-tracker
+  ≥ 1.78.0 with *Descriptions from the forum* switched on for the API key.
 
 ### Recommended companions
 
@@ -232,7 +237,48 @@ enabling them (admin → *Index* → *Rebuild index*, or
 | **Rate limiting** | Per-IP points limiter on search/filters. When a visitor runs out of points the IP is temporarily blocked (configurable duration and post-block budget reset). Guests pay an extra per-action cost. |
 | **Tracker whitelist sync** | Enable toggle (reveals the settings), tracker URL, API key ID, API secret (own *Save secret* button — stored server-side only), live-sync timeout, optional bare-hash detection, **Test connection** and **Scan whole forum** with a progress bar (batched, resumable). |
 | ↳ **Only sync magnets that point at our tracker** (2.6.1) | Off by default. When on, a hash is sent only if its magnet link has a `tr=` announce URL on one of the **Tracker hosts** (comma / newline separated hostnames or IPs, e.g. `tracker.example.org, 203.0.113.10`; `host:port` / full URLs accepted, case-insensitive). Hashes without a magnet (bare `btih:` / bare 40-hex) are skipped; the scan reports them as *skipped*. An empty host list sends nothing and is reported on the last-error line. |
+| ↳ **Send topic descriptions to the tracker** (2.10.0) | Off by default. Sends each topic's first post to the tracker as the description of its torrents — see below. |
 | **Advanced filters** (2.8.0) | Master switch (off by default), panel expanded by default, one switch per filter (filters needing a missing extension are greyed out), Type position / field name, extra sorts, **How release data is read from posts** (size sources, units, labels, series rules — placeholders show the defaults) and the **Index** card (status, *Rebuild index*, *Only missing / outdated*, per-discussion preview). After enabling an index-based filter, rebuild the index once; after changing the parser rules, save and rebuild. |
+
+### Tracker whitelist sync — topic descriptions
+
+With **Send topic descriptions to the tracker** on (and the whitelist sync
+itself on), a topic's first post is sent to the tracker's
+`v1/whitelist/describe` endpoint right after its magnets went through
+`v1/whitelist/submit`. The tracker uses it as the description of those
+torrents — held for its moderators or published at once, as set for the API
+key on the tracker (*Descriptions from the forum*, tryhackx-tracker ≥ 1.78.0).
+
+- **What is sent** — the discussion id and link, the first post's id, its
+  author (id and display name; nothing for a deleted user), its last edit
+  time (or creation time), its source text exactly as the author typed it
+  (BBCode / Markdown as written, not the rendered HTML), its length in
+  characters and the info hashes found in it — the same extraction and the
+  same *Only sync magnets that point at our tracker* filter as the magnet
+  sync. More than 20 hashes are sent as several topics of the same post.
+- **Length limit** — the forum's own content limit is sent with every request
+  (`max_chars`): the *Maximum content length* of **Content Settings** while
+  *Enable content length modification* is on, core's 63,000 characters while
+  it is off — the same value posts are validated with. A post longer than that
+  (written before the limit was lowered) goes without its text, with its
+  length only. The tracker keeps descriptions up to that limit, at most
+  1,000,000 characters, and reports longer ones as *too long*.
+- **When** — on a new discussion, on every edit of its first post and when
+  flarum/approval approves it; never for a reply, a hidden or private post,
+  or a post still awaiting approval. Like the magnet sync it runs after the
+  response is sent and never blocks posting.
+- **Scan whole forum** sends and refreshes the descriptions of every topic it
+  passes (calls of at most 25 topics, about 3.5 MB each). If a batch runs out
+  of time half-way, the next batch starts after the last post whose
+  description went out, so nothing is skipped. The progress line counts
+  descriptions *accepted* (created, queued, updated, replaced or proposed),
+  *unchanged*, *kept* (edited on the tracker and left as they are), *too
+  long*, *invalid* and *skipped* (hash not registered, banned, described from
+  another topic, removed or declined on the tracker).
+- **Descriptions off on the tracker** — if the key's descriptions are off,
+  magnets keep syncing and descriptions pause for 10 minutes (a Test
+  connection that shows them on again resumes them at once); the scan says so
+  once. **Test connection** shows the key's description mode.
 
 ### Advanced filters — API
 
@@ -264,8 +310,8 @@ MySQL, MariaDB and PostgreSQL; on SQLite it needs a build with math functions.
 | `GET` | `/api/tryhackx/homepage/meta/status` | Admin only — Advanced Filters index status (`total, indexed, missing, stale, with_size, series, movies`) + the parser defaults. |
 | `POST` | `/api/tryhackx/homepage/meta/reindex` | Admin only — one batch of the index rebuild (`{cursor, only_stale?}` → `{next_cursor, done, processed, elapsed_ms, status?}`); single-flight (409 while another batch runs). |
 | `GET` | `/api/tryhackx/homepage/meta/preview?id=N` | Admin only — what the parser reads from discussion N with the current settings, next to what the index holds. |
-| `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew. |
-| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, …}`); on a tracker error the cursor is not advanced. |
+| `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew / description mode (`describe`: `off`, `queue`, `publish` or `null` for an older tracker). |
+| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, describe, …}`, `describe` = `{described, unchanged, kept, too_long, invalid, skipped, off}` or `null` while descriptions are off); on a tracker error the cursor is not advanced. |
 | `POST` | `/api/tryhackx/homepage/whitelist/secret` | Admin only — stores / clears the tracker API secret (accepts a full `key_id.secret` token). |
 
 ## Development & tests
