@@ -85,6 +85,12 @@ class TrackerWhitelistClient
         return $this->isEnabled() && ($v === true || $v === '1' || $v === 1 || $v === 'true');
     }
 
+    public function copyImages(): bool
+    {
+        $v = $this->settings->get(self::S . '.whitelist_image_copy');
+        return $this->isEnabled() && ($v === true || $v === '1' || $v === 1 || $v === 'true');
+    }
+
     public function describePaused(): bool
     {
         $r = $this->store->read(self::DESCRIBE_OFF_KEY);
@@ -228,14 +234,14 @@ class TrackerWhitelistClient
     public function submit(array $items, string $source = 'forum', ?int $timeout = null): array
     {
         if (!$items) return ['ok' => true, 'status' => 0, 'json' => ['results' => [], 'summary' => ['added' => 0, 'exists' => 0, 'banned' => 0, 'invalid' => 0]], 'error' => null, 'elapsed_ms' => 0];
-        return $this->request('POST', 'v1/whitelist/submit', ['items' => array_values($items), 'source' => $source], $timeout ?? $this->timeoutSeconds());
+        return $this->request('POST', 'v1/whitelist/submit', ['items' => array_values($items), 'source' => $source, 'copy_images' => $this->copyImages()], $timeout ?? $this->timeoutSeconds());
     }
 
     public function describe(array $topics, int $maxChars, ?int $timeout = null): array
     {
         if (!$topics) return ['ok' => true, 'status' => 0, 'json' => ['results' => [], 'summary' => []], 'error' => null, 'elapsed_ms' => 0];
         if ($this->describePaused()) return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'describe_off', 'elapsed_ms' => 0];
-        $r = $this->request('POST', 'v1/whitelist/describe', DescriptionPayload::body($topics, $maxChars), $timeout ?? $this->timeoutSeconds());
+        $r = $this->request('POST', 'v1/whitelist/describe', DescriptionPayload::body($topics, $maxChars, $this->copyImages()), $timeout ?? $this->timeoutSeconds());
         if ($r['ok'] && ($r['json']['ok'] ?? true) === false) {
             $r['ok'] = false;
             $r['error'] = (string) ($r['json']['error'] ?? 'describe_failed');
@@ -247,7 +253,7 @@ class TrackerWhitelistClient
     /** Health check; $override = ['api_url','api_key_id','api_secret'] for unsaved admin values. */
     public function ping(?array $override = null, int $timeout = 6): array
     {
-        return $this->request('GET', 'v1/whitelist/ping', null, $timeout, $override);
+        return $this->request('GET', 'v1/whitelist/ping&copy_images=' . ($this->copyImages() ? '1' : '0'), null, $timeout, $override);
     }
 
     public static function retryAfterSeconds(?string $header, int $default = 30): int
@@ -262,7 +268,7 @@ class TrackerWhitelistClient
         return max(1, min(3600, $seconds));
     }
 
-    private function request(string $method, string $endpoint, ?array $body, int $timeout, ?array $override = null): array
+    protected function request(string $method, string $endpoint, ?array $body, int $timeout, ?array $override = null): array
     {
         $t0 = microtime(true);
         $base = $this->apiUrl($override['api_url'] ?? null);

@@ -15,6 +15,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\DatabaseTransactionsManager;
 use PHPUnit\Framework\Attributes\Test;
+use TryHackX\HomepageBlocks\Cache\Store;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
 
 /**
@@ -33,6 +34,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
 
     private const HASH = 'aeb79b5a45543c7db600a6a09ac02205809f5cbe';
     private const OTHER_HASH = '0123456789abcdef0123456789abcdef01234567';
+    private const THIRD_HASH = 'fedcba9876543210fedcba9876543210fedcba98';
 
     private RecordingWhitelistClient $tracker;
 
@@ -310,6 +312,194 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertSame(0, $result['describe']['described']);
     }
 
+    private function saveSettings(array $settings): void
+    {
+        $response = $this->send($this->request('POST', '/api/settings', [
+            'authenticatedAs' => 1,
+            'json' => $settings,
+        ]));
+        $this->assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    #[Test]
+    public function saving_the_picture_consent_tells_the_tracker_right_away(): void
+    {
+        $this->saveSettings(['tryhackx-homepage-blocks.whitelist_image_copy' => '1']);
+
+        $this->assertCount(1, $this->tracker->pings);
+        $this->assertNull($this->tracker->pings[0]['override']);
+        $this->assertSame('1', $this->app()->getContainer()->make(SettingsRepositoryInterface::class)->get('tryhackx-homepage-blocks.whitelist_image_copy'));
+
+        $this->saveSettings(['tryhackx-homepage-blocks.whitelist_image_copy' => '0']);
+
+        $this->assertCount(2, $this->tracker->pings);
+    }
+
+    #[Test]
+    public function saving_other_settings_sends_nothing(): void
+    {
+        $this->saveSettings(['tryhackx-homepage-blocks.whitelist_timeout_seconds' => '5']);
+
+        $this->assertCount(0, $this->tracker->pings);
+        $this->assertCount(0, $this->tracker->calls);
+    }
+
+    private function testConnection(): array
+    {
+        $response = $this->send($this->request('POST', '/api/tryhackx/homepage/whitelist/test', [
+            'authenticatedAs' => 1,
+            'json' => [],
+        ]));
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+
+        return json_decode((string) $response->getBody(), true);
+    }
+
+    #[Test]
+    public function test_connection_shows_the_trackers_picture_state(): void
+    {
+        $this->tracker->pingJson = ['ok' => true, 'images' => 'copy', 'image_domains' => ['tryhackx.org', 7, 'img.example.org']];
+        $result = $this->testConnection();
+        $this->assertSame('copy', $result['images']);
+        $this->assertSame(['tryhackx.org', 'img.example.org'], $result['image_domains']);
+
+        $this->tracker->pingJson = ['ok' => true, 'images' => 'no_consent', 'image_domains' => ['tryhackx.org']];
+        $this->assertSame('no_consent', $this->testConnection()['images']);
+
+        $this->tracker->pingJson = ['ok' => true, 'images' => 'off', 'image_domains' => []];
+        $this->assertSame('off', $this->testConnection()['images']);
+
+        $this->tracker->pingJson = ['ok' => true];
+        $result = $this->testConnection();
+        $this->assertNull($result['images']);
+        $this->assertSame([], $result['image_domains']);
+    }
+
+    private function describeAll(int $cursor = 0): array
+    {
+        $response = $this->send($this->request('POST', '/api/tryhackx/homepage/whitelist/scan', [
+            'authenticatedAs' => 1,
+            'json' => ['cursor' => $cursor, 'mode' => 'describe'],
+        ]));
+
+        return [$response->getStatusCode(), json_decode((string) $response->getBody(), true)];
+    }
+
+    #[Test]
+    public function the_description_pass_walks_first_posts_only_and_submits_before_describing(): void
+    {
+        $first = $this->startDiscussion("Release notes\nmagnet:?xt=urn:btih:" . self::HASH);
+        $this->reply($first, 'magnet:?xt=urn:btih:' . self::OTHER_HASH);
+        $this->startDiscussion('No magnet here.');
+        $last = $this->startDiscussion('magnet:?xt=urn:btih:' . self::THIRD_HASH);
+        $this->tracker->calls = [];
+        $this->tracker->describeOn = true;
+
+        [$status, $result] = $this->describeAll();
+
+        $this->assertSame(200, $status);
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['done']);
+        $this->assertSame(3, $result['total_posts']);
+        $this->assertSame(3, $result['processed']);
+        $this->assertSame($this->firstPostId($last), $result['next_cursor']);
+        $this->assertSame(2, $result['describe']['described']);
+        $this->assertCount(1, $this->tracker->calls);
+        $items = json_encode($this->tracker->calls[0]['items']);
+        $this->assertStringContainsString(self::HASH, $items);
+        $this->assertStringContainsString(self::THIRD_HASH, $items);
+        $this->assertStringNotContainsString(self::OTHER_HASH, $items);
+        $this->assertCount(1, $this->tracker->described);
+        $this->assertSame(1, $this->tracker->described[0]['submits']);
+        $this->assertSame([$this->firstPostId($first), $this->firstPostId($last)], array_column($this->tracker->described[0]['topics'], 'post_id'));
+    }
+
+    #[Test]
+    public function the_description_pass_needs_the_description_setting(): void
+    {
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->calls = [];
+
+        [$status, $result] = $this->describeAll();
+
+        $this->assertSame(422, $status);
+        $this->assertSame('describe_disabled', $result['error']);
+        $this->assertCount(0, $this->tracker->calls);
+    }
+
+    #[Test]
+    public function a_failed_submit_keeps_the_description_pass_cursor(): void
+    {
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->describeOn = true;
+        $this->tracker->submitError = 'http_503';
+
+        [, $result] = $this->describeAll();
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(0, $result['next_cursor']);
+        $this->assertFalse($result['done']);
+        $this->assertCount(0, $this->tracker->described);
+    }
+
+    #[Test]
+    public function a_failed_describe_keeps_the_description_pass_cursor(): void
+    {
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->describeOn = true;
+        $this->tracker->describeError = 'http_503';
+
+        [, $result] = $this->describeAll();
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(0, $result['next_cursor']);
+        $this->assertSame('describe: http_503', $result['error']);
+    }
+
+    #[Test]
+    public function describe_off_holds_the_description_pass(): void
+    {
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->describeOn = true;
+        $this->tracker->describeError = 'describe_off';
+
+        [, $result] = $this->describeAll();
+
+        $this->assertTrue($result['ok']);
+        $this->assertFalse($result['done']);
+        $this->assertSame(0, $result['next_cursor']);
+        $this->assertSame(0, $result['processed']);
+        $this->assertTrue($result['describe']['off']);
+    }
+
+    #[Test]
+    public function the_description_pass_and_the_scan_never_run_together(): void
+    {
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->calls = [];
+        $this->tracker->describeOn = true;
+        $store = $this->app()->getContainer()->make(Store::class);
+        $store->write('whitelist:scan_running', ['until' => time() + 40], 60);
+
+        try {
+            [$describeStatus] = $this->describeAll();
+            $scan = $this->send($this->request('POST', '/api/tryhackx/homepage/whitelist/scan', [
+                'authenticatedAs' => 1,
+                'json' => ['cursor' => 0],
+            ]));
+        } finally {
+            $store->write('whitelist:scan_running', ['until' => 0], 5);
+        }
+
+        $this->assertSame(409, $describeStatus);
+        $this->assertSame(409, $scan->getStatusCode());
+        $this->assertCount(0, $this->tracker->calls);
+        $this->assertCount(0, $this->tracker->described);
+
+        [$status] = $this->describeAll();
+        $this->assertSame(200, $status);
+    }
+
     #[Test]
     public function a_dry_run_sends_no_description(): void
     {
@@ -335,10 +525,13 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     /** @var array<int, array{items: array, level: int}> */
     public array $calls = [];
     public bool $fail = false;
+    public ?string $submitError = null;
     public ?ConnectionInterface $db = null;
     public bool $describeOn = false;
     public ?string $describeError = null;
     public array $described = [];
+    public array $pings = [];
+    public array $pingJson = ['ok' => true];
 
     public function __construct()
     {
@@ -376,6 +569,9 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
         if ($this->fail) {
             throw new \RuntimeException('tracker down');
         }
+        if ($this->submitError !== null) {
+            return ['ok' => false, 'status' => 503, 'json' => null, 'error' => $this->submitError, 'elapsed_ms' => 1];
+        }
 
         return ['ok' => true, 'status' => 200, 'json' => ['summary' => ['added' => count($items)]], 'error' => null, 'elapsed_ms' => 1];
     }
@@ -388,6 +584,18 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     public function describePaused(): bool
     {
         return false;
+    }
+
+    public function copyImages(): bool
+    {
+        return false;
+    }
+
+    public function ping(?array $override = null, int $timeout = 6): array
+    {
+        $this->pings[] = ['override' => $override];
+
+        return ['ok' => true, 'status' => 200, 'json' => $this->pingJson, 'error' => null, 'elapsed_ms' => 1];
     }
 
     public function lastError(): ?array

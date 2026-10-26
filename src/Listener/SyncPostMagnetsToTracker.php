@@ -5,6 +5,7 @@ namespace TryHackX\HomepageBlocks\Listener;
 use Flarum\Post\CommentPost;
 use Flarum\Post\Event\Posted;
 use Flarum\Post\Event\Revised;
+use Flarum\Settings\Event\Saved;
 use Illuminate\Database\ConnectionInterface;
 use Psr\Log\LoggerInterface;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
@@ -53,6 +54,27 @@ class SyncPostMagnetsToTracker
             $this->afterCommit(fn () => $this->later(fn () => $this->sync($post)));
         } catch (\Throwable $e) {
             $this->logOnce('whitelist sync error: ' . $e->getMessage());
+        }
+    }
+
+    public function settingsSaved(Saved $event): void
+    {
+        try {
+            if (!array_key_exists(TrackerWhitelistClient::S . '.whitelist_image_copy', $event->settings)) return;
+            $this->later(fn () => $this->sendImageConsent());
+        } catch (\Throwable $e) {
+            $this->logOnce('whitelist image consent error: ' . $e->getMessage());
+        }
+    }
+
+    private function sendImageConsent(): void
+    {
+        try {
+            if ($this->client->inCooldown() || !$this->client->isConfigured()) return;
+            $r = $this->client->ping();
+            if (!$r['ok']) $this->logOnce('whitelist image consent not sent: ' . ($r['error'] ?? 'unknown'));
+        } catch (\Throwable $e) {
+            $this->logOnce('whitelist image consent error: ' . $e->getMessage());
         }
     }
 

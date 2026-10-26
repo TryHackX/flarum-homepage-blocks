@@ -32,14 +32,14 @@ final class DescriptionPayload
         return $out;
     }
 
-    public static function body(array $topics, int $maxChars): array
+    public static function body(array $topics, int $maxChars, bool $copyImages): array
     {
-        return ['topics' => array_values($topics), 'max_chars' => $maxChars];
+        return ['topics' => array_values($topics), 'max_chars' => $maxChars, 'copy_images' => $copyImages];
     }
 
-    public static function pack(array $topics, int $maxChars, int $maxTopics = self::MAX_TOPICS, int $maxBytes = self::MAX_BYTES): array
+    public static function pack(array $topics, int $maxChars, bool $copyImages, int $maxTopics = self::MAX_TOPICS, int $maxBytes = self::MAX_BYTES): array
     {
-        $envelope = strlen((string) json_encode(self::body([], $maxChars), TrackerWhitelistClient::JSON_FLAGS));
+        $envelope = strlen((string) json_encode(self::body([], $maxChars, $copyImages), TrackerWhitelistClient::JSON_FLAGS));
         $calls = [];
         $call = [];
         $bytes = $envelope;

@@ -176,6 +176,9 @@ You can also find the donation option in the extension's admin settings panel.
   post of every topic with synced magnets is sent to the tracker as the
   description of its torrents (see
   [Tracker whitelist sync — topic descriptions](#tracker-whitelist-sync--topic-descriptions)).
+- **Picture copying by consent** (2.11.0) — the tracker may keep its own
+  copies of the pictures in those descriptions only while both sides agree
+  (see [Tracker whitelist sync — pictures](#tracker-whitelist-sync--pictures)).
 - **Polish & English locales** — fully translated UI.
 
 ## Requirements
@@ -189,7 +192,9 @@ You can also find the donation option in the extension's admin settings panel.
   panel (Whitelist → API clients) and the tracker's *API ban exempt IPs* list
   containing this forum's outbound IP (a wrong secret from a non-exempt IP is
   banned for 30 days by design). Topic descriptions need tryhackx-tracker
-  ≥ 1.78.0 with *Descriptions from the forum* switched on for the API key.
+  ≥ 1.78.0 with *Descriptions from the forum* switched on for the API key;
+  picture copying needs tryhackx-tracker ≥ 1.79.0 with image domains set for
+  the key.
 
 ### Recommended companions
 
@@ -238,6 +243,8 @@ enabling them (admin → *Index* → *Rebuild index*, or
 | **Tracker whitelist sync** | Enable toggle (reveals the settings), tracker URL, API key ID, API secret (own *Save secret* button — stored server-side only), live-sync timeout, optional bare-hash detection, **Test connection** and **Scan whole forum** with a progress bar (batched, resumable). |
 | ↳ **Only sync magnets that point at our tracker** (2.6.1) | Off by default. When on, a hash is sent only if its magnet link has a `tr=` announce URL on one of the **Tracker hosts** (comma / newline separated hostnames or IPs, e.g. `tracker.example.org, 203.0.113.10`; `host:port` / full URLs accepted, case-insensitive). Hashes without a magnet (bare `btih:` / bare 40-hex) are skipped; the scan reports them as *skipped*. An empty host list sends nothing and is reported on the last-error line. |
 | ↳ **Send topic descriptions to the tracker** (2.10.0) | Off by default. Sends each topic's first post to the tracker as the description of its torrents — see below. |
+| ↳ **Let the tracker copy pictures from posts** (2.11.0) | Off by default. The forum's consent for the tracker to keep its own copies of the pictures in the descriptions — see below. |
+| ↳ **Send / refresh all topic descriptions** (2.11.0) | Button: sends the descriptions of all topics again in resumable batches (first posts only) — see below. |
 | **Advanced filters** (2.8.0) | Master switch (off by default), panel expanded by default, one switch per filter (filters needing a missing extension are greyed out), Type position / field name, extra sorts, **How release data is read from posts** (size sources, units, labels, series rules — placeholders show the defaults) and the **Index** card (status, *Rebuild index*, *Only missing / outdated*, per-discussion preview). After enabling an index-based filter, rebuild the index once; after changing the parser rules, save and rebuild. |
 
 ### Tracker whitelist sync — topic descriptions
@@ -275,10 +282,44 @@ key on the tracker (*Descriptions from the forum*, tryhackx-tracker ≥ 1.78.0).
   *unchanged*, *kept* (edited on the tracker and left as they are), *too
   long*, *invalid* and *skipped* (hash not registered, banned, described from
   another topic, removed or declined on the tracker).
+- **Send / refresh all topic descriptions** (2.11.0) walks only the topics'
+  first posts (visible, not private, approved) and sends every description
+  again, without rescanning the replies: per batch of 50 first posts it
+  registers their magnets first (so the tracker never answers *not
+  registered*), then sends the descriptions the same way as the scan. Texts
+  the tracker already has come back as *unchanged* and write nothing; new or
+  edited ones are created, updated or queued as the key says. It works like
+  **Scan whole forum** — one request per batch, Cancel / Resume, a progress
+  bar over the number of topics, the same counters, the cursor kept on a
+  failed call — and the two never run at the same time. It needs the sync
+  and *Send topic descriptions to the tracker* saved as on, and it stops (to
+  be resumed) while the tracker has descriptions off for the key.
 - **Descriptions off on the tracker** — if the key's descriptions are off,
   magnets keep syncing and descriptions pause for 10 minutes (a Test
   connection that shows them on again resumes them at once); the scan says so
   once. **Test connection** shows the key's description mode.
+
+### Tracker whitelist sync — pictures
+
+The tracker copies the pictures of the descriptions it holds only while BOTH
+sides agree (tryhackx-tracker ≥ 1.79.0):
+
+- **The tracker** wants them when image domains are set for the API key on the
+  tracker — it copies pictures from those domains only.
+- **The forum** agrees with **Let the tracker copy pictures from posts** (off
+  by default, inert while the whitelist sync is off). Its current value goes
+  with every request as `copy_images` (`true` / `false` in the submit and
+  describe bodies, `copy_images=1` / `0` on the ping), so the tracker always
+  knows the latest answer. Saving the settings with a changed value tells the
+  tracker right away (a ping after the response is sent, never blocking the
+  save); otherwise it arrives with the next sync or **Test connection**.
+- While both agree, the tracker keeps its own copies and swaps the picture
+  addresses in its descriptions; otherwise it shows them from the forum's
+  addresses.
+- **Test connection** shows the state the tracker reports: it copies them
+  (with its domains), it does not want them (no image domains on the key), or
+  it wants them but the forum has not agreed. An older tracker reports
+  nothing.
 
 ### Advanced filters — API
 
@@ -310,8 +351,8 @@ MySQL, MariaDB and PostgreSQL; on SQLite it needs a build with math functions.
 | `GET` | `/api/tryhackx/homepage/meta/status` | Admin only — Advanced Filters index status (`total, indexed, missing, stale, with_size, series, movies`) + the parser defaults. |
 | `POST` | `/api/tryhackx/homepage/meta/reindex` | Admin only — one batch of the index rebuild (`{cursor, only_stale?}` → `{next_cursor, done, processed, elapsed_ms, status?}`); single-flight (409 while another batch runs). |
 | `GET` | `/api/tryhackx/homepage/meta/preview?id=N` | Admin only — what the parser reads from discussion N with the current settings, next to what the index holds. |
-| `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew / description mode (`describe`: `off`, `queue`, `publish` or `null` for an older tracker). |
-| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, describe, …}`, `describe` = `{described, unchanged, kept, too_long, invalid, skipped, off}` or `null` while descriptions are off); on a tracker error the cursor is not advanced. |
+| `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew / description mode (`describe`: `off`, `queue`, `publish` or `null` for an older tracker) / picture state (`images`: `copy`, `off`, `no_consent` or `null`, with `image_domains`). |
+| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, describe, …}`, `describe` = `{described, unchanged, kept, too_long, invalid, skipped, off}` or `null` while descriptions are off); on a tracker error the cursor is not advanced. With `mode: "describe"` one batch of the description pass over first posts only (same answer, `total_posts` = number of topics; 422 `describe_disabled` while descriptions are off). |
 | `POST` | `/api/tryhackx/homepage/whitelist/secret` | Admin only — stores / clears the tracker API secret (accepts a full `key_id.secret` token). |
 
 ## Development & tests

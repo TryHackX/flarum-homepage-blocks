@@ -31,6 +31,7 @@ export default function registerWhitelistSettings() {
         testBusy: false,
         testResult: null,
         scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false },
+        describeAll: { running: false, cancel: false, cursor: 0, processed: 0, total: null, error: null, done: false, describe: null, describeOff: false },
     };
 
     function secretIsSet() {
@@ -68,7 +69,10 @@ export default function registerWhitelistSettings() {
             if (res.ok) {
                 const describe = res.describe ? ' ' + t('test_describe', { mode: t('describe_mode_' + res.describe) })
                     : settingIsTruthy(page.setting(S + '.whitelist_describe_enabled')()) ? ' ' + t('test_describe_unknown') : '';
-                st.testResult = { ok: true, text: t('test_ok', { count: res.whitelist_count === null || res.whitelist_count === undefined ? '?' : res.whitelist_count, mode: res.mode || '?', skew: res.skew_seconds || 0, ms: res.elapsed_ms || 0 }) + describe };
+                const images = res.images === 'copy' ? ' ' + t('test_images_copy', { domains: (res.image_domains || []).join(', ') || '—' })
+                    : res.images === 'off' ? ' ' + t('test_images_off')
+                    : res.images === 'no_consent' ? ' ' + t('test_images_no_consent') : '';
+                st.testResult = { ok: true, text: t('test_ok', { count: res.whitelist_count === null || res.whitelist_count === undefined ? '?' : res.whitelist_count, mode: res.mode || '?', skew: res.skew_seconds || 0, ms: res.elapsed_ms || 0 }) + describe + images };
             } else {
                 const hint = (res.http_status === 403 || res.http_status === 401) ? ' ' + t('test_forbidden_hint') : res.error === 'invalid_credentials' ? ' ' + t('test_invalid_credentials_hint') : '';
                 st.testResult = { ok: false, text: t('test_fail', { error: res.error || ('HTTP ' + res.http_status) }) + hint };
@@ -118,6 +122,49 @@ export default function registerWhitelistSettings() {
         if (s.done && !s.error) app.alerts.show({ type: 'success' }, t('scan_done', { processed: s.processed, hashes: s.hashes, added: s.added, exists: s.exists, banned: s.banned }));
     }
 
+    function describeSaved() {
+        return settingIsTruthy(app.data.settings[S + '.whitelist_sync_enabled']) && settingIsTruthy(app.data.settings[S + '.whitelist_describe_enabled']);
+    }
+
+    async function runDescribeAll(resume) {
+        const s = st.describeAll;
+        if (s.running || st.scan.running) return;
+        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, error: null, done: false, describe: null });
+        s.running = true; s.cancel = false; s.error = null; s.describeOff = false; m.redraw();
+        while (!s.done && !s.cancel) {
+            let res;
+            try {
+                res = await app.request({ method: 'POST', url: apiUrl() + '/tryhackx/homepage/whitelist/scan', body: { cursor: s.cursor, mode: 'describe' }, errorHandler: () => {} });
+            } catch (e) {
+                const status = e && e.status;
+                const err = (e && e.response && e.response.error) || ('HTTP ' + status);
+                s.error = status === 409 ? t('describe_all_running') : status === 503 ? t('scan_cooldown') : err === 'describe_disabled' ? t('describe_all_disabled') : t('scan_error', { error: err });
+                break;
+            }
+            if (res.total_posts !== undefined) s.total = res.total_posts;
+            if (!res.ok) {
+                s.error = t('scan_error', { error: res.error || 'tracker error' });
+                break;
+            }
+            s.cursor = res.next_cursor;
+            s.processed += res.processed;
+            if (res.describe) {
+                s.describe = s.describe || {};
+                DESCRIBE_COUNTERS.forEach((k) => { s.describe[k] = (s.describe[k] || 0) + (res.describe[k] || 0); });
+                if (res.describe.off) s.describeOff = true;
+            }
+            s.done = !!res.done;
+            m.redraw();
+            if (s.describeOff) break;
+        }
+        s.running = false;
+        m.redraw();
+        if (s.done && !s.error && !s.describeOff) {
+            const d = s.describe || {};
+            app.alerts.show({ type: 'success' }, t('describe_all_done', { processed: s.processed, described: d.described || 0, unchanged: d.unchanged || 0 }));
+        }
+    }
+
     app.registry.for(S)
         .registerSetting(sectionHeader(app.translator.trans(S + '.admin.section_whitelist')))
         .registerSetting({
@@ -147,6 +194,8 @@ export default function registerWhitelistSettings() {
                 ]);
             const s = st.scan;
             const pct = s.total ? Math.min(100, Math.round(100 * s.processed / Math.max(1, s.total))) : (s.done ? 100 : 0);
+            const ds = st.describeAll;
+            const dsPct = ds.total ? Math.min(100, Math.round(100 * ds.processed / Math.max(1, ds.total))) : (ds.done ? 100 : 0);
 
             return m('div', { className: 'Form-group HomepageBlocks-whitelistGroup' + (enabled ? ' is-open' : ''), 'aria-hidden': dis ? 'true' : 'false' }, [
                 m('div', { className: 'HomepageBlocks-whitelistInner' }, [
@@ -225,6 +274,33 @@ export default function registerWhitelistSettings() {
                         m('div', { className: 'helpText' }, t('describe_help')),
                     ]),
 
+                    m('div', { className: 'HomepageBlocks-whitelistField' }, [
+                        m('label', { className: 'checkbox' }, [
+                            m('input', { type: 'checkbox', className: 'HomepageBlocks-whitelistImageCopy', disabled: dis, tabindex: dis ? -1 : 0, checked: settingIsTruthy(this.setting(S + '.whitelist_image_copy')()), onchange: (e) => this.setting(S + '.whitelist_image_copy')(e.target.checked ? '1' : '0') }),
+                            ' ', t('image_copy'),
+                        ]),
+                        m('div', { className: 'helpText' }, t('image_copy_help')),
+                    ]),
+
+                    m('div', { className: 'HomepageBlocks-whitelistScan HomepageBlocks-whitelistDescribeAll' }, [
+                        m('div', { className: 'HomepageBlocks-whitelistActions' }, [
+                            m('button', { type: 'button', className: 'Button', disabled: dis || !describeSaved() || ds.running || s.running, onclick: () => runDescribeAll(false) }, [
+                                m('i', { className: 'fas fa-file-alt Button-icon icon' + (ds.running ? ' fa-spin' : '') }), ' ', t('describe_all_button'),
+                            ]),
+                            ds.running ? m('button', { type: 'button', className: 'Button', onclick: () => { ds.cancel = true; } }, t('scan_cancel')) : null,
+                            (!ds.running && !ds.done && ds.cursor > 0) ? m('button', { type: 'button', className: 'Button', disabled: dis || !describeSaved() || s.running, onclick: () => runDescribeAll(true) }, t('scan_resume')) : null,
+                        ]),
+                        (ds.running || ds.processed > 0 || ds.error || ds.describeOff) ? m('div', { className: 'HomepageBlocks-progress' }, [
+                            m('div', { className: 'HomepageBlocks-progressBar' }, m('div', { className: 'HomepageBlocks-progressFill' + (ds.error ? ' is-error' : ds.done ? ' is-done' : ''), style: 'width:' + dsPct + '%' })),
+                            m('div', { className: 'HomepageBlocks-progressText' }, t('describe_all_progress', { processed: ds.processed, total: ds.total === null ? '?' : ds.total })),
+                            ds.describe ? m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress_describe', { described: ds.describe.described, unchanged: ds.describe.unchanged, kept: ds.describe.kept, tooLong: ds.describe.too_long, invalid: ds.describe.invalid, skipped: ds.describe.skipped })) : null,
+                            ds.describeOff ? m('div', { className: 'HomepageBlocks-warn' }, t('describe_all_off')) : null,
+                            ds.error ? m('div', { className: 'HomepageBlocks-err' }, ds.error) : null,
+                            ds.cancel && !ds.running ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_cancelled')) : null,
+                        ]) : null,
+                        m('div', { className: 'helpText' }, t('describe_all_help')),
+                    ]),
+
                     // Test connection
                     m('div', { className: 'HomepageBlocks-whitelistActions' }, [
                         m('button', { type: 'button', className: 'Button', disabled: dis || st.testBusy, onclick: () => testConnection(page) }, [
@@ -237,7 +313,7 @@ export default function registerWhitelistSettings() {
                     // Scan whole forum
                     m('div', { className: 'HomepageBlocks-whitelistScan' }, [
                         m('div', { className: 'HomepageBlocks-whitelistActions' }, [
-                            m('button', { type: 'button', className: 'Button Button--primary', disabled: dis || s.running, onclick: () => runScan(false) }, [
+                            m('button', { type: 'button', className: 'Button Button--primary', disabled: dis || s.running || ds.running, onclick: () => runScan(false) }, [
                                 m('i', { className: 'fas fa-search Button-icon icon' + (s.running ? ' fa-spin' : '') }), ' ', t('scan_button'),
                             ]),
                             s.running ? m('button', { type: 'button', className: 'Button', onclick: () => { s.cancel = true; } }, t('scan_cancel')) : null,

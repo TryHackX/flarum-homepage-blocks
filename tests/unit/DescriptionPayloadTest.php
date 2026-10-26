@@ -81,8 +81,8 @@ class DescriptionPayloadTest extends TestCase
     {
         $topics = [$this->topic(1), $this->topic(2)];
 
-        $this->assertSame(['topics' => $topics, 'max_chars' => 63000], DescriptionPayload::body($topics, 63000));
-        $this->assertSame(['topics' => [], 'max_chars' => self::LIMIT], DescriptionPayload::body([], self::LIMIT));
+        $this->assertSame(['topics' => $topics, 'max_chars' => 63000, 'copy_images' => false], DescriptionPayload::body($topics, 63000, false));
+        $this->assertSame(['topics' => [], 'max_chars' => self::LIMIT, 'copy_images' => true], DescriptionPayload::body([], self::LIMIT, true));
     }
 
     #[Test]
@@ -111,7 +111,7 @@ class DescriptionPayloadTest extends TestCase
         $topics = [];
         for ($i = 1; $i <= 60; $i++) $topics[] = $this->topic($i);
 
-        $calls = DescriptionPayload::pack($topics, self::LIMIT);
+        $calls = DescriptionPayload::pack($topics, self::LIMIT, false);
 
         $this->assertSame([25, 25, 10], array_map('count', $calls));
         $this->assertSame($topics, array_merge(...$calls));
@@ -123,14 +123,14 @@ class DescriptionPayloadTest extends TestCase
         $topics = [];
         for ($i = 1; $i <= 7; $i++) $topics[] = $this->topic($i, str_repeat('ą', 400000 + $i * 1000));
 
-        $calls = DescriptionPayload::pack($topics, self::LIMIT);
+        $calls = DescriptionPayload::pack($topics, self::LIMIT, false);
 
         $this->assertSame($topics, array_merge(...$calls));
         foreach ($calls as $n => $call) {
-            $body = json_encode(DescriptionPayload::body($call, self::LIMIT), TrackerWhitelistClient::JSON_FLAGS);
+            $body = json_encode(DescriptionPayload::body($call, self::LIMIT, false), TrackerWhitelistClient::JSON_FLAGS);
             $this->assertLessThanOrEqual(DescriptionPayload::MAX_BYTES, strlen($body));
             if (isset($calls[$n + 1])) {
-                $more = json_encode(DescriptionPayload::body(array_merge($call, [$calls[$n + 1][0]]), self::LIMIT), TrackerWhitelistClient::JSON_FLAGS);
+                $more = json_encode(DescriptionPayload::body(array_merge($call, [$calls[$n + 1][0]]), self::LIMIT, false), TrackerWhitelistClient::JSON_FLAGS);
                 $this->assertGreaterThan(DescriptionPayload::MAX_BYTES, strlen($more));
             }
         }
@@ -141,17 +141,19 @@ class DescriptionPayloadTest extends TestCase
     {
         $topics = [$this->topic(1, "a\"b\\c\nż"), $this->topic(2, '€'), $this->topic(3)];
         foreach ([63000, self::LIMIT, 16000000] as $limit) {
-            $size = strlen(json_encode(DescriptionPayload::body($topics, $limit), TrackerWhitelistClient::JSON_FLAGS));
+            foreach ([false, true] as $copyImages) {
+                $size = strlen(json_encode(DescriptionPayload::body($topics, $limit, $copyImages), TrackerWhitelistClient::JSON_FLAGS));
 
-            $this->assertCount(1, DescriptionPayload::pack($topics, $limit, 25, $size));
-            $this->assertCount(2, DescriptionPayload::pack($topics, $limit, 25, $size - 1));
+                $this->assertCount(1, DescriptionPayload::pack($topics, $limit, $copyImages, 25, $size));
+                $this->assertCount(2, DescriptionPayload::pack($topics, $limit, $copyImages, 25, $size - 1));
+            }
         }
     }
 
     #[Test]
     public function a_single_topic_over_the_cap_still_gets_a_call(): void
     {
-        $calls = DescriptionPayload::pack([$this->topic(1, str_repeat('x', 2000))], self::LIMIT, 25, 100);
+        $calls = DescriptionPayload::pack([$this->topic(1, str_repeat('x', 2000))], self::LIMIT, false, 25, 100);
 
         $this->assertCount(1, $calls);
     }

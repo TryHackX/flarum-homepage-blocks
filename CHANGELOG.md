@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-10-26
+
+> **Picture copying by consent of both sides** — the tracker keeps its own copies of the
+> pictures in the descriptions only while it wants them (image domains set for the API key on
+> the tracker) AND the forum agrees (tryhackx-tracker 1.79.0) — and a button that sends or
+> refreshes the descriptions of all topics. **PHP + frontend + locales**, no migration. Off by
+> default.
+
+### Added
+- **Let the tracker copy pictures from posts** — a new switch in the whitelist settings (off by
+  default, inert while the sync itself is off): the forum's consent for the tracker to keep its
+  own copies of the forum's pictures (from the image domains set for the key on the tracker)
+  and swap their addresses in the descriptions it holds. Off: the tracker shows them from the
+  forum's addresses.
+- The consent goes with every request: `"copy_images": true|false` at the top level of every
+  `v1/whitelist/submit` and `v1/whitelist/describe` body, `copy_images=1|0` on the ping.
+- **Saving the settings with a changed consent tells the tracker right away** — a ping after
+  the response has been sent (like the live sync: never blocking the save, never throwing,
+  failures logged once).
+- **Test connection shows the tracker's picture state**: it copies them (with its image
+  domains), it does not want them (no image domains on the key), or it wants them but the
+  forum has not agreed yet. Nothing is shown for an older tracker.
+- **Send / refresh all topic descriptions** — a button under the description settings that
+  walks only the discussions' first posts (visible, not private, approved when flarum/approval
+  is installed) and sends their descriptions again: per batch it registers the posts' eligible
+  magnets first (idempotent, so the tracker never answers `not_registered`), then sends the
+  descriptions with the same packing, 413 split and time budget as the forum scan. Texts the
+  tracker already has come back as `unchanged` and write nothing; new or edited ones are
+  created, updated or queued as the key says. Works like *Scan whole forum*: one request per
+  batch (50 first posts), cursor kept by the page, Cancel / Resume, a progress bar over the
+  number of topics, the description counters, and a failed call never advances the cursor.
+  It shares the scan's single-flight marker and lock, so a description pass and a magnet scan
+  never run at the same time, and it stops (to be resumed) while the tracker has descriptions
+  off for the key. Enabled only while the sync and *Send topic descriptions to the tracker* are
+  saved as on. Same endpoint as the scan, with `mode: "describe"`.
+- New unit test `TrackerWhitelistClientTest` (consent in the submit / describe bodies and the
+  ping URL, off by default and while the sync is off); `WhitelistSyncAfterCommitTest` covers
+  the ping after saving, the Test connection picture state and the description pass (first
+  posts only, magnets before descriptions, cursor kept on a failed submit / describe, held while
+  descriptions are off, refused while the setting is off, single-flight with the scan).
+
+### Changed
+- The whitelist settings group may grow taller before it is cut off (it holds more fields and
+  two progress blocks now).
+
 ## [2.10.0] - 2026-10-26
 
 > **Topic descriptions for the tracker** — the whitelist sync can also send each topic's first

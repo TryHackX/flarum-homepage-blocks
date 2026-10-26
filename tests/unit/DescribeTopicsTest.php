@@ -35,6 +35,11 @@ class DescribeTopicsTest extends TestCase
             {
             }
 
+            public function copyImages(): bool
+            {
+                return false;
+            }
+
             public function describe(array $topics, int $maxChars, ?int $timeout = null): array
             {
                 $this->calls[] = ['topics' => $topics, 'max_chars' => $maxChars, 'timeout' => $timeout];

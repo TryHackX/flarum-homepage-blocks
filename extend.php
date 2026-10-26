@@ -84,7 +84,8 @@ return [
             $event->settings['tryhackx-homepage-blocks.whitelist_api_secret_set'] = ($secret !== null && $secret !== '') ? '1' : '0';
         })
         ->listen(\Flarum\Post\Event\Posted::class, SyncPostMagnetsToTracker::class)
-        ->listen(\Flarum\Post\Event\Revised::class, SyncPostMagnetsToTracker::class),
+        ->listen(\Flarum\Post\Event\Revised::class, SyncPostMagnetsToTracker::class)
+        ->listen(\Flarum\Settings\Event\Saved::class, [SyncPostMagnetsToTracker::class, 'settingsSaved']),
     (new Extend\Conditional())
         ->whenExtensionEnabled('flarum-approval', fn () => [
             (new Extend\Event())->listen(\Flarum\Approval\Event\PostWasApproved::class, SyncPostMagnetsToTracker::class),

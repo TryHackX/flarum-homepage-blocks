@@ -41,8 +41,12 @@ class WhitelistScanController implements RequestHandlerInterface
         }
         $body = (array) ($request->getParsedBody() ?? []);
         $cursor = max(0, (int) ($body['cursor'] ?? 0));
-        $batch = isset($body['batch']) ? (int) $body['batch'] : WhitelistScanner::BATCH_POSTS;
-        $dryRun = !empty($body['dry_run']);
+        $describeAll = ($body['mode'] ?? null) === 'describe';
+        $batch = isset($body['batch']) ? (int) $body['batch'] : ($describeAll ? WhitelistScanner::DESCRIBE_BATCH_POSTS : WhitelistScanner::BATCH_POSTS);
+        $dryRun = !$describeAll && !empty($body['dry_run']);
+        if ($describeAll && !$this->client->describeEnabled()) {
+            return new JsonResponse(['error' => 'describe_disabled'], 422);
+        }
 
         if ($this->client->inCooldown() && !$dryRun) {
             return new JsonResponse(['error' => 'cooldown', 'retry_after' => 60, 'last_error' => $this->client->lastError()], 503);
@@ -55,14 +59,14 @@ class WhitelistScanController implements RequestHandlerInterface
         }
         $this->store->write(self::RUNNING_KEY, ['until' => time() + 40], 60);
         try {
-            $result = $this->store->withLock('whitelist:scan', fn () => $this->scanner->scanBatch($cursor, $batch, $dryRun), false, null);
+            $result = $this->store->withLock('whitelist:scan', fn () => $describeAll ? $this->scanner->describeBatch($cursor, $batch) : $this->scanner->scanBatch($cursor, $batch, $dryRun), false, null);
             if ($result === null) {
                 return new JsonResponse(['error' => 'already_running'], 409);
             }
             if ($cursor === 0) {
-                $result['total_posts'] = $this->scanner->countPosts();
+                $result['total_posts'] = $describeAll ? $this->scanner->countFirstPosts() : $this->scanner->countPosts();
             }
-            $result['max_post_id'] = $this->scanner->maxPostId();
+            $result['max_post_id'] = $describeAll ? $this->scanner->maxFirstPostId() : $this->scanner->maxPostId();
             $result['last_error'] = $this->client->lastError();
             return new JsonResponse($result, 200);
         } finally {

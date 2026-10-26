@@ -36,6 +36,8 @@ class WhitelistTestController implements RequestHandlerInterface
         $serverTime = isset($json['server_time']) ? (int) $json['server_time'] : null;
         $describe = in_array($json['describe'] ?? null, ['off', 'queue', 'publish'], true) ? $json['describe'] : null;
         if ($r['ok'] && $describe !== null && $describe !== 'off') $this->client->resumeDescribe();
+        $images = in_array($json['images'] ?? null, ['copy', 'off', 'no_consent'], true) ? $json['images'] : null;
+        $imageDomains = $images !== null && is_array($json['image_domains'] ?? null) ? array_values(array_filter($json['image_domains'], 'is_string')) : [];
         return new JsonResponse([
             'ok' => (bool) $r['ok'],
             'http_status' => (int) $r['status'],
@@ -46,6 +48,8 @@ class WhitelistTestController implements RequestHandlerInterface
             'whitelist_count' => isset($json['whitelist_count']) ? (int) $json['whitelist_count'] : null,
             'client' => $json['client'] ?? null,
             'describe' => $describe,
+            'images' => $images,
+            'image_domains' => $imageDomains,
             'elapsed_ms' => (int) $r['elapsed_ms'],
             'last_error' => $this->client->lastError(),
         ]);

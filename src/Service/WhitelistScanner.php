@@ -20,6 +20,7 @@ use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
 final class WhitelistScanner
 {
     public const BATCH_POSTS = 200;          // posts per HTTP batch
+    public const DESCRIBE_BATCH_POSTS = 50;
     public const CHUNK_POSTS = 50;           // DB chunk inside a batch
     public const MAX_HASHES_PER_CALL = 500;  // tracker API cap (API_MAX_ITEMS)
     public const WALL_BUDGET_SEC = 20.0;     // hard per-request budget (php-fpm 30 s ceiling)
@@ -66,24 +67,50 @@ final class WhitelistScanner
         return (int) ($this->baseQuery()->max('posts.id') ?? 0);
     }
 
+    private function firstPostQuery()
+    {
+        return $this->baseQuery()->whereColumn('posts.id', 'discussions.first_post_id');
+    }
+
+    public function countFirstPosts(): int
+    {
+        return (int) $this->firstPostQuery()->count('posts.id');
+    }
+
+    public function maxFirstPostId(): int
+    {
+        return (int) ($this->firstPostQuery()->max('posts.id') ?? 0);
+    }
+
     /**
      * @return array{ok:bool,next_cursor:int,done:bool,processed:int,hashes_found:int,skipped_no_tracker:int,sent:int,added:int,exists:int,banned:int,invalid:int,error:?string,elapsed_ms:int,last_post_id:int,describe:?array}
      */
     public function scanBatch(int $cursor, int $batch = self::BATCH_POSTS, bool $dryRun = false): array
     {
+        return $this->walk($cursor, $batch, $dryRun, false);
+    }
+
+    public function describeBatch(int $cursor, int $batch = self::DESCRIBE_BATCH_POSTS): array
+    {
+        return $this->walk($cursor, $batch, false, true);
+    }
+
+    private function walk(int $cursor, int $batch, bool $dryRun, bool $firstPostsOnly): array
+    {
         $t0 = microtime(true);
         $batch = max(10, min(1000, $batch));
         $bare = $this->client->detectBareHashes();
         $describe = !$dryRun && $this->client->describeEnabled();
+        $paused = $firstPostsOnly && $this->client->describePaused();
         $firstPosts = [];
         $processed = 0;
         $lastId = $cursor;
         $items = [];      // hash => item
         $skipped = [];    // hash => true — found, but not eligible (no magnet pointing at our tracker)
         $stopped = false; // stopped early (budget / cap) → not done even if fewer rows
-        $maxId = $this->maxPostId();
+        $maxId = $firstPostsOnly ? $this->maxFirstPostId() : $this->maxPostId();
 
-        $rows = $this->baseQuery()->where('posts.id', '>', $cursor)->orderBy('posts.id')->limit($batch)->get();
+        $rows = $paused ? collect() : ($firstPostsOnly ? $this->firstPostQuery() : $this->baseQuery())->where('posts.id', '>', $cursor)->orderBy('posts.id')->limit($batch)->get();
         foreach ($rows as $post) {
             if ((microtime(true) - $t0) > self::SCAN_BUDGET_SEC || count($items) >= self::MAX_HASHES_PER_CALL) {
                 $stopped = true;
@@ -107,7 +134,7 @@ final class WhitelistScanner
             $processed++;
             $lastId = (int) $post->id;
         }
-        $done = !$stopped && (count($rows) < $batch || $lastId >= $maxId);
+        $done = !$stopped && !$paused && (count($rows) < $batch || $lastId >= $maxId);
 
         $out = ['ok' => true, 'next_cursor' => $lastId, 'done' => $done, 'processed' => $processed, 'hashes_found' => count($items),
                 'skipped_no_tracker' => count($skipped),
@@ -149,13 +176,18 @@ final class WhitelistScanner
                     $out['next_cursor'] = $cursor;
                     $out['done'] = false;
                     $out['error'] = 'describe: ' . ($d['error'] ?? 'tracker_error');
-                } elseif (!$d['off'] && $d['sent'] < count($topics)) {
+                } elseif ((!$d['off'] || $firstPostsOnly) && $d['sent'] < count($topics)) {
                     $through = DescriptionPayload::sentThrough($topics, $d['sent'], $cursor);
                     $out['next_cursor'] = $through;
                     $out['last_post_id'] = $through;
                     $out['done'] = false;
                     $out['processed'] = $rows->take($processed)->filter(fn ($post) => (int) $post->id <= $through)->count();
                 }
+            } elseif ($firstPostsOnly && $out['describe']['off']) {
+                $out['next_cursor'] = $cursor;
+                $out['last_post_id'] = $cursor;
+                $out['done'] = false;
+                $out['processed'] = 0;
             }
         }
         $out['elapsed_ms'] = (int) ((microtime(true) - $t0) * 1000);
@@ -185,7 +217,7 @@ final class WhitelistScanner
     private function describeTopics(array $topics, int $maxChars, ?float $t0 = null): array
     {
         $out = ['ok' => true, 'sent' => 0, 'off' => false, 'error' => null, 'status' => 0, 'counters' => DescriptionPayload::tally([])];
-        $queue = DescriptionPayload::pack($topics, $maxChars);
+        $queue = DescriptionPayload::pack($topics, $maxChars, $this->client->copyImages());
         while ($queue) {
             $timeout = null;
             if ($t0 !== null) {
