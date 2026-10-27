@@ -159,17 +159,19 @@ class DescriptionPayloadTest extends TestCase
     }
 
     #[Test]
-    public function counters_add_up_the_statuses_of_a_summary(): void
+    public function counters_split_the_statuses_of_a_summary(): void
     {
         $summary = ['created' => 1, 'queued' => 2, 'updated' => 3, 'replaced' => 4, 'proposed' => 5, 'kept' => 6,
-            'unchanged' => 7, 'too_long' => 8, 'invalid' => 9, 'skipped' => 10];
+            'unchanged' => 7, 'too_long' => 8, 'invalid' => 9, 'skipped' => 10, 'withdrawn' => 11, 'released' => 12, 'error' => 13, 'too_big' => 14];
 
         $once = DescriptionPayload::tally($summary);
         $twice = DescriptionPayload::tally($summary, $once);
 
-        $this->assertSame(['described' => 15, 'unchanged' => 7, 'kept' => 6, 'too_long' => 8, 'invalid' => 9, 'skipped' => 10], $once);
-        $this->assertSame(['described' => 30, 'unchanged' => 14, 'kept' => 12, 'too_long' => 16, 'invalid' => 18, 'skipped' => 20], $twice);
-        $this->assertSame(['described' => 0, 'unchanged' => 0, 'kept' => 0, 'too_long' => 0, 'invalid' => 0, 'skipped' => 0], DescriptionPayload::tally([]));
+        $this->assertSame(['published' => 8, 'waiting' => 2, 'proposed' => 5, 'unchanged' => 7, 'kept' => 6, 'withdrawn' => 23,
+            'too_long' => 22, 'invalid' => 9, 'skipped' => 10, 'errors' => 13], $once);
+        $this->assertSame(16, $twice['published']);
+        $this->assertSame(46, $twice['withdrawn']);
+        $this->assertSame(array_fill_keys(array_keys(DescriptionPayload::COUNTERS), 0), DescriptionPayload::tally([]));
     }
 
     #[Test]
@@ -182,5 +184,110 @@ class DescriptionPayloadTest extends TestCase
         $this->assertSame(10, DescriptionPayload::sentThrough($topics, 2, 7));
         $this->assertSame(12, DescriptionPayload::sentThrough($topics, 3, 7));
         $this->assertSame(15, DescriptionPayload::sentThrough($topics, 4, 7));
+        $this->assertSame(10, DescriptionPayload::sentThrough([10, 10, 12, 15], 2, 7));
+    }
+
+    #[Test]
+    public function hashes_are_split_by_the_limit_the_tracker_reported(): void
+    {
+        $hashes = [];
+        for ($i = 0; $i < 9; $i++) $hashes[] = $this->hash($i);
+
+        $this->assertSame([4, 4, 1], array_map(fn ($t) => count($t['hashes']), DescriptionPayload::topics(1, 2, null, null, null, 'x', self::LIMIT, $hashes, 4)));
+        $this->assertSame([9], array_map(fn ($t) => count($t['hashes']), DescriptionPayload::topics(1, 2, null, null, null, 'x', self::LIMIT, $hashes)));
+    }
+
+    #[Test]
+    public function a_withdrawal_carries_no_text_and_gone_only_with_it(): void
+    {
+        $withdraw = DescriptionPayload::hidden(5, 9, [$this->hash(1), $this->hash(1), $this->hash(2)], false);
+        $gone = DescriptionPayload::hidden(5, 9, [$this->hash(3)], true);
+
+        $this->assertSame([['discussion_id' => 5, 'post_id' => 9, 'visible' => false, 'hashes' => [$this->hash(1), $this->hash(2)]]], $withdraw);
+        $this->assertSame([['discussion_id' => 5, 'post_id' => 9, 'visible' => false, 'gone' => true, 'hashes' => [$this->hash(3)]]], $gone);
+        $this->assertCount(3, DescriptionPayload::hidden(5, 9, array_map(fn ($i) => $this->hash($i), range(1, 45)), true));
+    }
+
+    #[Test]
+    public function a_visible_topic_is_described_and_removed_hashes_are_gone(): void
+    {
+        $sent = ['hashes' => [$this->hash(1), $this->hash(2), $this->hash(3)], 'visible' => true];
+
+        $plan = DescriptionPayload::plan($sent, true, false, [$this->hash(1), $this->hash(3), $this->hash(4)], [$this->hash(1), $this->hash(4)]);
+
+        $this->assertSame([$this->hash(1), $this->hash(4)], $plan['describe']);
+        $this->assertSame([], $plan['withdraw']);
+        $this->assertSame([$this->hash(2)], $plan['gone']);
+        $this->assertSame([$this->hash(1), $this->hash(3), $this->hash(4)], $plan['keep']);
+    }
+
+    #[Test]
+    public function a_topic_a_guest_cannot_see_withdraws_what_was_sent_visible(): void
+    {
+        $sent = ['hashes' => [$this->hash(1), $this->hash(2)], 'visible' => true];
+
+        $plan = DescriptionPayload::plan($sent, false, true, [$this->hash(1), $this->hash(9)], [$this->hash(1), $this->hash(9)]);
+
+        $this->assertSame([], $plan['describe']);
+        $this->assertSame([$this->hash(1)], $plan['withdraw']);
+        $this->assertSame([$this->hash(2)], $plan['gone']);
+        $this->assertSame([$this->hash(1)], $plan['keep']);
+    }
+
+    #[Test]
+    public function an_already_withdrawn_topic_is_not_withdrawn_again(): void
+    {
+        $plan = DescriptionPayload::plan(['hashes' => [$this->hash(1)], 'visible' => false], false, false, [$this->hash(1)], [$this->hash(1)]);
+
+        $this->assertSame(['describe' => [], 'withdraw' => [], 'gone' => [], 'keep' => [$this->hash(1)]], $plan);
+    }
+
+    #[Test]
+    public function an_unknown_hidden_topic_is_withdrawn_unless_it_is_private(): void
+    {
+        $public = DescriptionPayload::plan(null, false, false, [$this->hash(1)], [$this->hash(1)]);
+        $private = DescriptionPayload::plan(null, false, true, [$this->hash(1)], [$this->hash(1)]);
+
+        $this->assertSame([$this->hash(1)], $public['withdraw']);
+        $this->assertSame(['describe' => [], 'withdraw' => [], 'gone' => [], 'keep' => []], $private);
+    }
+
+    #[Test]
+    public function a_deleted_topic_releases_everything_it_sent(): void
+    {
+        $plan = DescriptionPayload::plan(['hashes' => [$this->hash(1), $this->hash(2)], 'visible' => false], false, false, [], []);
+
+        $this->assertSame([$this->hash(1), $this->hash(2)], $plan['gone']);
+        $this->assertSame([], $plan['keep']);
+    }
+
+    #[Test]
+    public function the_fingerprint_follows_every_field(): void
+    {
+        $topic = $this->topic(1);
+
+        $this->assertSame(DescriptionPayload::fingerprint([$topic]), DescriptionPayload::fingerprint([$topic]));
+        $this->assertNotSame(DescriptionPayload::fingerprint([$topic]), DescriptionPayload::fingerprint([['content' => 'other'] + $topic]));
+        $this->assertNotSame(DescriptionPayload::fingerprint([$topic]), DescriptionPayload::fingerprint(DescriptionPayload::hidden(1, 1, $topic['hashes'], false)));
+        $this->assertSame(40, strlen(DescriptionPayload::fingerprint([])));
+    }
+
+    #[Test]
+    public function the_topic_state_names_the_worst_answer_first(): void
+    {
+        $r = fn (string $status, bool $hidden = false, ?string $detail = null) => ['status' => $status, 'hidden' => $hidden, 'detail' => $detail, 'hash' => $this->hash(1)];
+
+        $this->assertSame(['error', 'too_long', '600000/500000'], DescriptionPayload::topicState([$r('created'), $r('too_long', false, '600000/500000')]));
+        $this->assertSame(['error', 'error', 'try again later'], DescriptionPayload::topicState([$r('other_topic'), $r('error', false, 'try again later')]));
+        $this->assertSame(['error', 'other_topic', $this->hash(1)], DescriptionPayload::topicState([$r('other_topic'), $r('created')]));
+        $this->assertSame(['error', 'registered_elsewhere', $this->hash(1)], DescriptionPayload::topicState([$r('registered_elsewhere')]));
+        $this->assertSame(['proposed', 'proposed', null], DescriptionPayload::topicState([$r('created'), $r('proposed')]));
+        $this->assertSame(['waiting', 'queued', null], DescriptionPayload::topicState([$r('unchanged'), $r('queued')]));
+        $this->assertSame(['published', 'updated', null], DescriptionPayload::topicState([$r('updated'), $r('released', true)]));
+        $this->assertSame(['waiting', 'unchanged', null], DescriptionPayload::topicState([$r('unchanged'), $r('stale')], 'waiting'));
+        $this->assertSame(['unchanged', 'kept', null], DescriptionPayload::topicState([$r('kept')], 'error'));
+        $this->assertSame(['withdrawn', 'withdrawn', null], DescriptionPayload::topicState([$r('withdrawn', true), $r('not_registered', true)]));
+        $this->assertSame(['withdrawn', 'not_registered', null], DescriptionPayload::topicState([$r('not_registered', true)]));
+        $this->assertSame(['error', 'invalid', $this->hash(1)], DescriptionPayload::topicState([$r('invalid', true)]));
     }
 }

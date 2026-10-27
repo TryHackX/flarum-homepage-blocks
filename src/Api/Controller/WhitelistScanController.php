@@ -20,8 +20,6 @@ use TryHackX\HomepageBlocks\Service\WhitelistScanner;
  * 409 {error:'already_running'}       — another scan batch is executing right now
  * 503 {error:'cooldown', retry_after} — the client is backing off after a tracker failure
  * 422 {error:'not_configured'}
- * On a tracker failure the batch answers 200 with ok:false and next_cursor == cursor (nothing skipped);
- * the UI stops and offers Resume.
  */
 class WhitelistScanController implements RequestHandlerInterface
 {
@@ -49,7 +47,8 @@ class WhitelistScanController implements RequestHandlerInterface
         }
 
         if ($this->client->inCooldown() && !$dryRun) {
-            return new JsonResponse(['error' => 'cooldown', 'retry_after' => 60, 'last_error' => $this->client->lastError()], 503);
+            $cooldown = $this->client->cooldown() ?? ['retry_after' => 60, 'reason' => ''];
+            return new JsonResponse(['error' => 'cooldown', 'retry_after' => $cooldown['retry_after'], 'reason' => $cooldown['reason'], 'last_error' => $this->client->lastError()], 503);
         }
         // Best-effort single-flight: a marker (60 s) so a second admin tab cannot start an overlapping
         // batch, plus the Store lock for the duration of this batch.

@@ -2,13 +2,24 @@
 
 namespace TryHackX\HomepageBlocks\Listener;
 
+use Flarum\Discussion\Discussion;
+use Flarum\Discussion\Event\Deleted as DiscussionDeleted;
+use Flarum\Discussion\Event\Deleting as DiscussionDeleting;
+use Flarum\Discussion\Event\Hidden as DiscussionHidden;
+use Flarum\Discussion\Event\Restored as DiscussionRestored;
 use Flarum\Post\CommentPost;
+use Flarum\Post\Event\Deleted as PostDeleted;
+use Flarum\Post\Event\Hidden as PostHidden;
 use Flarum\Post\Event\Posted;
+use Flarum\Post\Event\Restored as PostRestored;
 use Flarum\Post\Event\Revised;
 use Flarum\Settings\Event\Saved;
-use Illuminate\Database\ConnectionInterface;
+use Illuminate\Contracts\Events\Dispatcher;
 use Psr\Log\LoggerInterface;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
+use TryHackX\HomepageBlocks\Service\MagnetExtractor;
+use TryHackX\HomepageBlocks\Service\TrackerQueue;
+use TryHackX\HomepageBlocks\Service\TrackerSync;
 use TryHackX\HomepageBlocks\Service\WhitelistScanner;
 
 /**
@@ -23,132 +34,146 @@ use TryHackX\HomepageBlocks\Service\WhitelistScanner;
  *  - Under PHP-FPM the call runs AFTER the response has been sent (fastcgi_finish_request() in a
  *    shutdown function): the member never waits for the tracker, even a slow one. CLI, tests and
  *    other SAPIs run it right away, as before.
- *  - Bounded by the configured timeout (1–10 s) and skipped entirely while the client is in
- *    failure cooldown — a dead tracker holds a PHP worker for at most one attempt per window.
- *  - NEVER throws into the request; failures are logged once per cooldown window.
+ *  - Skipped entirely while the client is in failure cooldown — a dead tracker holds a PHP worker
+ *    for at most one attempt per window.
+ *  - NEVER throws into the request.
  *  - Posted covers the first post of a new discussion (Discussion\Event\Started is not needed).
- *    Deleted/Hidden/Restored are intentionally NOT handled: the tracker API is additive-only —
- *    removing a hash from the whitelist is a moderation decision made in the tracker panel.
  */
 class SyncPostMagnetsToTracker
 {
-    private static bool $loggedThisRequest = false;
+    private const DISCUSSION_EVENTS = [
+        'Flarum\Tags\Event\DiscussionWasTagged',
+        'FoF\Byobu\Events\RecipientsChanged',
+        'FoF\Byobu\Events\DiscussionMadePublic',
+        'FoF\Byobu\Events\RemovedSelf',
+        'FoF\Byobu\Events\AllRecipientsLeft',
+    ];
 
-    /** @var callable[] syncs waiting for the response to be sent ({@see later()}) */
-    private static array $deferred = [];
+    private static bool $loggedThisRequest = false;
 
     public function __construct(
         private TrackerWhitelistClient $client,
+        private TrackerQueue $queue,
+        private TrackerSync $sync,
         private WhitelistScanner $scanner,
         private LoggerInterface $logger,
-        private ConnectionInterface $db,
     ) {
     }
 
-    /** @param Posted|Revised|object $event  (also \Flarum\Approval\Event\PostWasApproved) */
-    public function handle($event): void
+    public function subscribe(Dispatcher $events): void
     {
-        try {
+        $events->listen(Posted::class, [$this, 'handle']);
+        $events->listen(Revised::class, [$this, 'handle']);
+        $events->listen(PostRestored::class, [$this, 'handle']);
+        if (class_exists('Flarum\Approval\Event\PostWasApproved')) {
+            $events->listen('Flarum\Approval\Event\PostWasApproved', [$this, 'handle']);
+        }
+        $events->listen(PostHidden::class, [$this, 'postHidden']);
+        $events->listen(PostDeleted::class, [$this, 'postDeleted']);
+        $events->listen(DiscussionHidden::class, [$this, 'discussionHidden']);
+        $events->listen(DiscussionDeleted::class, [$this, 'discussionHidden']);
+        $events->listen(DiscussionDeleting::class, [$this, 'discussionDeleting']);
+        $events->listen(DiscussionRestored::class, [$this, 'discussionChanged']);
+        foreach (self::DISCUSSION_EVENTS as $class) {
+            if (class_exists($class)) $events->listen($class, [$this, 'discussionChanged']);
+        }
+        $events->listen(Saved::class, [$this, 'settingsSaved']);
+    }
+
+    public function handle(object $event): void
+    {
+        $this->safely(function () use ($event) {
             $post = $event->post ?? null;
             if (!$post instanceof CommentPost || !$this->client->isEnabled()) return;
-            $this->afterCommit(fn () => $this->later(fn () => $this->sync($post)));
-        } catch (\Throwable $e) {
-            $this->logOnce('whitelist sync error: ' . $e->getMessage());
-        }
+            if (!$this->isFirstPost($post) && !MagnetExtractor::extract(self::raw($post), $this->client->detectBareHashes())) return;
+            $this->queue->enqueue((int) $post->discussion_id, TrackerQueue::POST, (int) $post->id);
+            $this->sync->schedule();
+        });
+    }
+
+    public function postHidden(PostHidden $event): void
+    {
+        $this->safely(function () use ($event) {
+            if (!$this->client->isEnabled() || !$this->isFirstPost($event->post)) return;
+            $this->queue->enqueue((int) $event->post->discussion_id, TrackerQueue::DESCRIBE);
+            $this->sync->schedule();
+        });
+    }
+
+    public function postDeleted(PostDeleted $event): void
+    {
+        $this->safely(function () use ($event) {
+            $post = $event->post;
+            if (!$post instanceof CommentPost || !$this->client->isEnabled() || !$this->isFirstPost($post)) return;
+            $discussion = Discussion::query()->find($post->discussion_id);
+            $this->scanner->rememberFirstPost((int) $post->discussion_id, $post, !empty($post->is_private) || !empty($discussion?->is_private));
+            $this->queue->enqueue((int) $post->discussion_id, TrackerQueue::DESCRIBE);
+            $this->sync->schedule();
+        });
+    }
+
+    public function discussionDeleting(DiscussionDeleting $event): void
+    {
+        $this->safely(function () use ($event) {
+            $discussion = $event->discussion;
+            if (!$this->client->isEnabled() || !$discussion->exists) return;
+            $first = $discussion->first_post_id
+                ? CommentPost::query()->where('posts.type', 'comment')->whereKey($discussion->first_post_id)->first()
+                : null;
+            $this->scanner->rememberFirstPost((int) $discussion->id, $first, !empty($discussion->is_private) || !empty($first?->is_private));
+            $this->queue->enqueue((int) $discussion->id, TrackerQueue::DESCRIBE);
+        });
+    }
+
+    public function discussionHidden(object $event): void
+    {
+        $this->enqueueDiscussion($event->discussion ?? null, TrackerQueue::DESCRIBE);
+    }
+
+    public function discussionChanged(object $event): void
+    {
+        $this->enqueueDiscussion($event->discussion ?? null, TrackerQueue::ALL);
     }
 
     public function settingsSaved(Saved $event): void
     {
-        try {
-            if (!array_key_exists(TrackerWhitelistClient::S . '.whitelist_image_copy', $event->settings)) return;
-            $this->later(fn () => $this->sendImageConsent());
-        } catch (\Throwable $e) {
-            $this->logOnce('whitelist image consent error: ' . $e->getMessage());
-        }
+        $this->safely(function () use ($event) {
+            $prefix = TrackerWhitelistClient::S . '.whitelist_';
+            $keys = array_keys($event->settings);
+            if (array_intersect($keys, [$prefix . 'api_url', $prefix . 'api_key_id'])) $this->sync->forgetConsent();
+            if (!array_intersect($keys, [$prefix . 'image_copy', $prefix . 'sync_enabled', $prefix . 'api_url', $prefix . 'api_key_id'])) return;
+            $this->sync->schedule();
+        });
     }
 
-    private function sendImageConsent(): void
+    private function enqueueDiscussion(mixed $discussion, string $reason): void
     {
-        try {
-            if ($this->client->inCooldown() || !$this->client->isConfigured()) return;
-            $r = $this->client->ping();
-            if (!$r['ok']) $this->logOnce('whitelist image consent not sent: ' . ($r['error'] ?? 'unknown'));
-        } catch (\Throwable $e) {
-            $this->logOnce('whitelist image consent error: ' . $e->getMessage());
-        }
+        $this->safely(function () use ($discussion, $reason) {
+            if (!$discussion instanceof Discussion || !$this->client->isEnabled()) return;
+            $this->queue->enqueue((int) $discussion->id, $reason);
+            $this->sync->schedule();
+        });
     }
 
-    /**
-     * Run $fn once the response is on its way. Under PHP-FPM the first deferred sync registers a
-     * shutdown function that finishes the request and then drains the queue; anywhere else
-     * (CLI, tests, mod_php) it runs now. sync() never throws, so one failure can't skip the rest.
-     */
-    private function later(callable $fn): void
+    private function isFirstPost(CommentPost $post): bool
     {
-        if (PHP_SAPI !== 'fpm-fcgi' || !function_exists('fastcgi_finish_request')) {
+        if ($post->number !== null && (int) $post->number === 1) return true;
+        $firstPostId = $post->discussion?->first_post_id;
+        return $firstPostId === null || (int) $firstPostId === (int) $post->id;
+    }
+
+    private static function raw(CommentPost $post): string
+    {
+        return (string) ($post->getRawOriginal('content') ?? $post->getAttributes()['content'] ?? '');
+    }
+
+    private function safely(callable $fn): void
+    {
+        try {
             $fn();
-            return;
-        }
-        if (!self::$deferred) {
-            register_shutdown_function(static function (): void {
-                fastcgi_finish_request();
-                $queue = self::$deferred;
-                self::$deferred = [];
-                foreach ($queue as $deferred) {
-                    $deferred();
-                }
-            });
-        }
-        self::$deferred[] = $fn;
-    }
-
-    /**
-     * Run $fn once the current transaction commits (now, when none is open). Cores without a
-     * transactions manager (Flarum < 2.0 stable) throw from afterCommit() — then run it now,
-     * as before. sync() never throws, so a fallback can't run it twice.
-     */
-    private function afterCommit(callable $fn): void
-    {
-        if (method_exists($this->db, 'afterCommit')) {
-            try {
-                $this->db->afterCommit($fn);
-                return;
-            } catch (\RuntimeException $e) {
-                // "Transactions Manager has not been set."
-            }
-        }
-        $fn();
-    }
-
-    private function sync(CommentPost $post): void
-    {
-        try {
-            if ($this->client->inCooldown() || !$this->client->isConfigured()) return;
-            if ($post->hidden_at !== null || !empty($post->is_private) || !($post->is_approved ?? true)) return;
-            $discussion = $post->discussion;
-            if ($discussion && ($discussion->hidden_at !== null || !empty($discussion->is_private))) return;
-
-            $r = $this->scanner->syncPost($post);
-            if ($r !== null && !$r['ok']) {
-                $this->logOnce('whitelist sync failed for post ' . $post->id . ': ' . ($r['error'] ?? 'unknown')
-                    . (($r['status'] ?? 0) === 403 || ($r['status'] ?? 0) === 401 ? ' — check the API key/secret; the tracker may have banned this server IP' : ''));
-                return;
-            }
-            if ($r === null || !$discussion || !$this->client->describeEnabled() || !$this->isFirstPost($post, $discussion)) return;
-
-            $d = $this->scanner->describePost($post, $r['hashes'] ?? []);
-            if ($d !== null && !$d['ok'] && !$d['off']) {
-                $this->logOnce('whitelist describe failed for discussion ' . $post->discussion_id . ': ' . ($d['error'] ?? 'unknown'));
-            }
         } catch (\Throwable $e) {
             $this->logOnce('whitelist sync error: ' . $e->getMessage());
         }
-    }
-
-    private function isFirstPost(CommentPost $post, $discussion): bool
-    {
-        $firstPostId = $discussion->first_post_id ?? $discussion->newQuery()->whereKey($discussion->getKey())->value('first_post_id');
-        return (int) $firstPostId === (int) $post->id;
     }
 
     private function logOnce(string $message): void

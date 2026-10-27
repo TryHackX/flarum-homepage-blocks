@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-10-27
+
+> **A topic that disappears takes its description along, and nothing is lost while the tracker is
+> away** — withdrawals and releases of hidden or deleted topics (tryhackx-tracker 1.81.0), a queue
+> the forum sends by itself, guest visibility checked the way Flarum checks it, and the sync's
+> state in the admin panel. **PHP + frontend + locales + two migrations** — run
+> `php flarum migrate` after updating.
+
+### Added
+- **Withdrawals** — a topic guests can no longer see (a hidden discussion or first post, a
+  private discussion, tags or a byobu change that hide it) is sent to the tracker as
+  `"visible": false` with its hashes and without its text: the tracker takes the forum's text
+  off where nobody changed it and withdraws a waiting proposal. A deleted topic or first post,
+  or hashes edited out of the first post, go with `"gone": true` as well, which also frees the
+  hashes from the topic. A restored topic is sent again in full. A tracker that does not take
+  withdrawals (no `describe_max_hashes` in its ping) is sent none.
+- **A queue for everything sent to the tracker** — table `homepage_tracker_queue`, written in the
+  same transaction as the post; several changes to one discussion are one row. It is sent after
+  the response under PHP-FPM, at once from the command line, on admin page loads, by the status
+  endpoint and by `php flarum homepage-blocks:tracker-sync`, scheduled every minute through
+  Flarum's scheduler. A failed send is tried again after 1, 2, 5, 10, 30, 60 and 120 minutes,
+  then every 6 hours, and never sooner than the tracker's `Retry-After`.
+- **What was sent is remembered** — table `homepage_tracker_topics`: per topic its hashes, its
+  visibility and the tracker's last answer. *Scan whole forum* and *Send / refresh all topic
+  descriptions* also withdraw the topics guests can no longer see and free the deleted ones.
+- **The sync's state in the admin panel** (and `GET /api/tryhackx/homepage/whitelist/status`):
+  topics published, waiting, proposed, unchanged, withdrawn and failed, the queue, a pause or a
+  cooldown with its reason and time left, the consent state, and the last 20 topics with a
+  problem, linked.
+- A registered magnet's `ref` carries `"first": true` when it is in the first post of its topic,
+  so the tracker keeps that hash's description for that topic (tryhackx-tracker 1.81.0).
+
+### Changed
+- **Guest visibility is Flarum's own** (`CommentPost::whereVisibleTo(new Guest())`), the
+  discussion included: tags, approval, privacy and hiding extensions all count, everywhere the
+  old hand-written conditions were used.
+- The consent to copy pictures is sent with the ping again until the tracker echoes it;
+  **Test connection** no longer sends it.
+- Descriptions have their own 20-second timeout, and their failures no longer put the whole
+  tracker client into a cooldown (401, 403 and 429 still do).
+- The tracker's own limits (`describe_max_*` from its ping, `max_*` from describe answers) are
+  used instead of the built-in ones once the tracker has answered.
+- At most 40 calls a minute go to the tracker, and both runs wait by themselves when it
+  rate-limits them.
+- The scan stops before a post unless it is the first of its batch, and registers magnets in
+  chunks of 500.
+
+### Fixed
+- A 422 fails only its own call's topics; a single topic answered 413 is reported as
+  *too big* with its size and is no longer re-sent without its text; a failed description no
+  longer holds the magnet scan back.
+- The cooldown reports its real time left and its reason, and `retry_after` is read from the
+  header or the body.
+- Resume is offered after descriptions were switched off, after an error and after a cancel,
+  even at the very start.
+
 ## [2.11.0] - 2026-10-26
 
 > **Picture copying by consent of both sides** — the tracker keeps its own copies of the

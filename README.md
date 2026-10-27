@@ -245,6 +245,7 @@ enabling them (admin → *Index* → *Rebuild index*, or
 | ↳ **Send topic descriptions to the tracker** (2.10.0) | Off by default. Sends each topic's first post to the tracker as the description of its torrents — see below. |
 | ↳ **Let the tracker copy pictures from posts** (2.11.0) | Off by default. The forum's consent for the tracker to keep its own copies of the pictures in the descriptions — see below. |
 | ↳ **Send / refresh all topic descriptions** (2.11.0) | Button: sends the descriptions of all topics again in resumable batches (first posts only) — see below. |
+| ↳ **Sync status** (2.12.0) | The topics sent, the queue, a pause or cooldown, the consent state and the last topics with a problem — see below. |
 | **Advanced filters** (2.8.0) | Master switch (off by default), panel expanded by default, one switch per filter (filters needing a missing extension are greyed out), Type position / field name, extra sorts, **How release data is read from posts** (size sources, units, labels, series rules — placeholders show the defaults) and the **Index** card (status, *Rebuild index*, *Only missing / outdated*, per-discussion preview). After enabling an index-based filter, rebuild the index once; after changing the parser rules, save and rebuild. |
 
 ### Tracker whitelist sync — topic descriptions
@@ -270,18 +271,37 @@ key on the tracker (*Descriptions from the forum*, tryhackx-tracker ≥ 1.78.0).
   (written before the limit was lowered) goes without its text, with its
   length only. The tracker keeps descriptions up to that limit, at most
   1,000,000 characters, and reports longer ones as *too long*.
-- **When** — on a new discussion, on every edit of its first post and when
-  flarum/approval approves it; never for a reply, a hidden or private post,
-  or a post still awaiting approval. Like the magnet sync it runs after the
-  response is sent and never blocks posting.
+- **When** — on a new discussion, on every edit of its first post, when
+  flarum/approval approves it and when a hidden or deleted topic is restored;
+  never for a reply or for a post guests cannot see. Visibility is Flarum's
+  own for a guest, the discussion included (tags, approval, privacy, hiding).
+  Every change goes into a queue in the same transaction as the post and is
+  sent after the response, so posting never waits for the tracker.
+- **Withdrawals** (2.12.0, tryhackx-tracker ≥ 1.81.0) — a topic guests can
+  no longer see (hidden, made private, moved to a hidden tag) is sent as
+  `"visible": false` with its hashes and without its text: the tracker takes
+  its text off where nobody changed it and withdraws a waiting proposal. A
+  deleted topic or first post, or hashes edited out of the first post, go
+  with `"gone": true`, which also frees the hashes from the topic. Restored,
+  the topic is sent again in full.
+- **The queue** (2.12.0) — one row per discussion in
+  `homepage_tracker_queue`, sent after the response under PHP-FPM, on admin
+  page loads, by the status block and by
+  `php flarum homepage-blocks:tracker-sync` (scheduled every minute — add
+  Flarum's `php flarum schedule:run` to cron so it runs without visitors). A
+  failed send is retried after 1, 2, 5, 10, 30, 60 and 120 minutes, then
+  every 6 hours, never sooner than the tracker's `Retry-After`; at most 40
+  calls a minute go to the tracker.
 - **Scan whole forum** sends and refreshes the descriptions of every topic it
   passes (calls of at most 25 topics, about 3.5 MB each). If a batch runs out
   of time half-way, the next batch starts after the last post whose
   description went out, so nothing is skipped. The progress line counts
-  descriptions *accepted* (created, queued, updated, replaced or proposed),
-  *unchanged*, *kept* (edited on the tracker and left as they are), *too
-  long*, *invalid* and *skipped* (hash not registered, banned, described from
-  another topic, removed or declined on the tracker).
+  descriptions *published*, *waiting*, *proposed*, *unchanged*, *kept*
+  (edited on the tracker and left as they are), *withdrawn*, *too long*,
+  *invalid*, *skipped* (hash not registered here or registered elsewhere,
+  banned, belonging to another topic, removed or declined on the tracker) and
+  *errors*. Both runs also withdraw the topics guests can no longer see and
+  free the deleted ones.
 - **Send / refresh all topic descriptions** (2.11.0) walks only the topics'
   first posts (visible, not private, approved) and sends every description
   again, without rescanning the replies: per batch of 50 first posts it
@@ -294,6 +314,11 @@ key on the tracker (*Descriptions from the forum*, tryhackx-tracker ≥ 1.78.0).
   failed call — and the two never run at the same time. It needs the sync
   and *Send topic descriptions to the tracker* saved as on, and it stops (to
   be resumed) while the tracker has descriptions off for the key.
+- **Sync status** (2.12.0) — a block under the settings shows how many topics
+  are published, waiting, proposed, unchanged, withdrawn or failed, the
+  queue (waiting, due, failing, next send), a pause or a cooldown with its
+  reason and time left, whether the tracker has confirmed the consent to copy
+  pictures, and the last 20 topics with a problem, each linked.
 - **Descriptions off on the tracker** — if the key's descriptions are off,
   magnets keep syncing and descriptions pause for 10 minutes (a Test
   connection that shows them on again resumes them at once); the scan says so
@@ -310,9 +335,9 @@ sides agree (tryhackx-tracker ≥ 1.79.0):
   by default, inert while the whitelist sync is off). Its current value goes
   with every request as `copy_images` (`true` / `false` in the submit and
   describe bodies, `copy_images=1` / `0` on the ping), so the tracker always
-  knows the latest answer. Saving the settings with a changed value tells the
-  tracker right away (a ping after the response is sent, never blocking the
-  save); otherwise it arrives with the next sync or **Test connection**.
+  knows the latest answer. A changed value is sent with a ping again and
+  again until the tracker echoes it (2.12.0); **Test connection** only reads
+  the state and never sends it.
 - While both agree, the tracker keeps its own copies and swaps the picture
   addresses in its descriptions; otherwise it shows them from the forum's
   addresses.
@@ -352,7 +377,8 @@ MySQL, MariaDB and PostgreSQL; on SQLite it needs a build with math functions.
 | `POST` | `/api/tryhackx/homepage/meta/reindex` | Admin only — one batch of the index rebuild (`{cursor, only_stale?}` → `{next_cursor, done, processed, elapsed_ms, status?}`); single-flight (409 while another batch runs). |
 | `GET` | `/api/tryhackx/homepage/meta/preview?id=N` | Admin only — what the parser reads from discussion N with the current settings, next to what the index holds. |
 | `POST` | `/api/tryhackx/homepage/whitelist/test` | Admin only — pings the tracker API with the (unsaved) settings and reports mode / whitelist size / clock skew / description mode (`describe`: `off`, `queue`, `publish` or `null` for an older tracker) / picture state (`images`: `copy`, `off`, `no_consent` or `null`, with `image_domains`). |
-| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, describe, …}`, `describe` = `{described, unchanged, kept, too_long, invalid, skipped, off}` or `null` while descriptions are off); on a tracker error the cursor is not advanced. With `mode: "describe"` one batch of the description pass over first posts only (same answer, `total_posts` = number of topics; 422 `describe_disabled` while descriptions are off). |
+| `POST` | `/api/tryhackx/homepage/whitelist/scan` | Admin only — one batch of the forum scan (`{cursor}` → `{next_cursor, done, processed, hashes_found, skipped_no_tracker, added, exists, banned, describe, …}`, `describe` = `{published, waiting, proposed, unchanged, kept, withdrawn, too_long, invalid, skipped, errors, off}` or `null` while descriptions are off); a magnet registration that fails keeps the cursor, a description that fails is queued and the cursor moves on. With `mode: "describe"` one batch of the description pass over first posts only (same answer, `total_posts` = number of topics; 422 `describe_disabled` while descriptions are off). |
+| `GET` | `/api/tryhackx/homepage/whitelist/status` | Admin only — the sync's state (2.12.0): `enabled`, `describe` (`enabled`, `paused_until`, `withdraw`), `topics` (`published, waiting, proposed, unchanged, withdrawn, error`), `queue` (`pending, due, failing, next_at`), `problems` (the last 20: discussion, title, link, status, detail, attempts), `consent` (`wanted`, `confirmed`), `cooldown`, `last_error`. Also sends what is due in the queue. |
 | `POST` | `/api/tryhackx/homepage/whitelist/secret` | Admin only — stores / clears the tracker API secret (accepts a full `key_id.secret` token). |
 
 ## Development & tests

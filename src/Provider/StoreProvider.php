@@ -15,6 +15,9 @@ use TryHackX\HomepageBlocks\Cache\CacheStore;
 use TryHackX\HomepageBlocks\Cache\FileStore;
 use TryHackX\HomepageBlocks\Cache\Store;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
+use TryHackX\HomepageBlocks\Service\SentTopics;
+use TryHackX\HomepageBlocks\Service\TrackerQueue;
+use TryHackX\HomepageBlocks\Service\TrackerSync;
 use TryHackX\HomepageBlocks\Service\WhitelistScanner;
 
 /**
@@ -43,6 +46,9 @@ class StoreProvider extends AbstractServiceProvider
         // Whitelist sync: one client/scanner per request (cooldown state + settings read once).
         $this->container->singleton(TrackerWhitelistClient::class);
         $this->container->singleton(WhitelistScanner::class);
+        $this->container->singleton(TrackerQueue::class);
+        $this->container->singleton(SentTopics::class);
+        $this->container->singleton(TrackerSync::class);
 
         $this->container->singleton(Store::class, function ($container) {
             // Ścieżka domyślna: natywny magazyn plikowy.

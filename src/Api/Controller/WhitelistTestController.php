@@ -8,6 +8,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
+use TryHackX\HomepageBlocks\Service\TrackerSync;
 
 /**
  * POST /api/tryhackx/homepage/whitelist/test — admin-only "Test connection".
@@ -17,7 +18,7 @@ use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
  */
 class WhitelistTestController implements RequestHandlerInterface
 {
-    public function __construct(protected TrackerWhitelistClient $client) {}
+    public function __construct(protected TrackerWhitelistClient $client, protected TrackerSync $sync) {}
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
@@ -38,6 +39,7 @@ class WhitelistTestController implements RequestHandlerInterface
         if ($r['ok'] && $describe !== null && $describe !== 'off') $this->client->resumeDescribe();
         $images = in_array($json['images'] ?? null, ['copy', 'off', 'no_consent'], true) ? $json['images'] : null;
         $imageDomains = $images !== null && is_array($json['image_domains'] ?? null) ? array_values(array_filter($json['image_domains'], 'is_string')) : [];
+        $this->sync->schedule(false);
         return new JsonResponse([
             'ok' => (bool) $r['ok'],
             'http_status' => (int) $r['status'],
@@ -50,6 +52,7 @@ class WhitelistTestController implements RequestHandlerInterface
             'describe' => $describe,
             'images' => $images,
             'image_domains' => $imageDomains,
+            'consent' => ['wanted' => $this->sync->consentWanted(), 'confirmed' => $this->sync->consentConfirmed()],
             'elapsed_ms' => (int) $r['elapsed_ms'],
             'last_error' => $this->client->lastError(),
         ]);

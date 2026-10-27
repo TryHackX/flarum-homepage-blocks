@@ -17,7 +17,20 @@ function sectionHeader(title) {
     };
 }
 
-const DESCRIBE_COUNTERS = ['described', 'unchanged', 'kept', 'too_long', 'invalid', 'skipped'];
+const DESCRIBE_COUNTERS = ['published', 'waiting', 'proposed', 'unchanged', 'kept', 'withdrawn', 'too_long', 'invalid', 'skipped', 'errors'];
+const PROBLEMS = ['too_long', 'too_big', 'invalid', 'error', 'failed', 'not_registered', 'registered_elsewhere', 'banned', 'other_topic', 'removed', 'declined'];
+
+function sleep(seconds) {
+    return new Promise((resolve) => setTimeout(resolve, Math.max(1, seconds) * 1000));
+}
+
+function when(ts) {
+    return ts ? new Date(ts * 1000).toLocaleString() : '—';
+}
+
+function count(n) {
+    return Number(n || 0).toLocaleString();
+}
 
 export default function registerWhitelistSettings() {
     const t = (k, params) => app.translator.trans(S + '.admin.whitelist.' + k, params);
@@ -30,9 +43,92 @@ export default function registerWhitelistSettings() {
         secretMsg: null,
         testBusy: false,
         testResult: null,
-        scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false },
-        describeAll: { running: false, cancel: false, cursor: 0, processed: 0, total: null, error: null, done: false, describe: null, describeOff: false },
+        status: null,
+        statusBusy: false,
+        statusError: false,
+        statusAsked: false,
+        scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false, waiting: 0, queued: 0 },
+        describeAll: { running: false, cancel: false, cursor: 0, processed: 0, total: null, error: null, done: false, describe: null, describeOff: false, waiting: 0, queued: 0 },
     };
+
+    async function loadStatus() {
+        if (st.statusBusy) return;
+        st.statusBusy = true; st.statusAsked = true; m.redraw();
+        try {
+            st.status = await app.request({ method: 'GET', url: apiUrl() + '/tryhackx/homepage/whitelist/status', errorHandler: () => {} });
+            st.statusError = false;
+        } catch (e) {
+            st.statusError = true;
+        }
+        st.statusBusy = false; m.redraw();
+    }
+
+    function addDescribe(s, res) {
+        if (!res.describe) return;
+        s.describe = s.describe || {};
+        DESCRIBE_COUNTERS.forEach((k) => { s.describe[k] = (s.describe[k] || 0) + (res.describe[k] || 0); });
+        if (res.describe.off) s.describeOff = true;
+    }
+
+    async function waitFor(s, seconds) {
+        s.waiting = seconds; m.redraw();
+        await sleep(seconds);
+        s.waiting = 0; m.redraw();
+    }
+
+    function describeLine(d) {
+        return t('scan_progress_describe', { published: d.published || 0, waiting: d.waiting || 0, proposed: d.proposed || 0, unchanged: d.unchanged || 0, kept: d.kept || 0, withdrawn: d.withdrawn || 0, tooLong: d.too_long || 0, invalid: d.invalid || 0, skipped: d.skipped || 0, errors: d.errors || 0 });
+    }
+
+    function problemText(p) {
+        const detail = p.detail || '';
+        if (p.status === 'too_long') {
+            const match = /^(\d+)\/(\d+)$/.exec(detail);
+            if (match) return t('problem_too_long_chars', { chars: count(match[1]), limit: count(match[2]) });
+        }
+        if (p.status === 'too_big' && /^\d+$/.test(detail)) return t('problem_too_big', { bytes: count(detail) });
+        if (p.status === 'failed') return t('problem_failed', { error: detail || '?', attempts: p.attempts, next: when(p.next_at) });
+        const text = t('problem_' + (PROBLEMS.includes(p.status) ? p.status : 'other'));
+        return detail ? [text, ' (', detail, ')'] : text;
+    }
+
+    function consentPending(consent) {
+        if (!consent) return null;
+        if (consent.wanted && consent.confirmed !== true) return 'consent_pending';
+        if (!consent.wanted && consent.confirmed === true) return 'withdraw_pending';
+        return null;
+    }
+
+    function statusBlock() {
+        if (!st.statusAsked && settingIsTruthy(app.data.settings[S + '.whitelist_sync_enabled'])) loadStatus();
+        const x = st.status;
+        const pending = x ? consentPending(x.consent) : null;
+        return m('div', { className: 'HomepageBlocks-whitelistScan HomepageBlocks-whitelistStatus' }, [
+            m('div', { className: 'HomepageBlocks-whitelistActions' }, [
+                m('strong', t('status_title')),
+                m('button', { type: 'button', className: 'Button', disabled: st.statusBusy, onclick: () => loadStatus() }, [
+                    m('i', { className: 'fas fa-sync-alt Button-icon icon' + (st.statusBusy ? ' fa-spin' : '') }), ' ', t('status_refresh'),
+                ]),
+            ]),
+            st.statusError ? m('div', { className: 'HomepageBlocks-err' }, t('status_error')) : null,
+            !x ? m('div', { className: 'helpText' }, st.statusBusy ? t('status_loading') : '') : m('div', { className: 'HomepageBlocks-progress' }, [
+                x.describe && x.describe.enabled ? m('div', { className: 'HomepageBlocks-progressText' }, t('status_topics', { published: count(x.topics.published), waiting: count(x.topics.waiting), proposed: count(x.topics.proposed), unchanged: count(x.topics.unchanged), withdrawn: count(x.topics.withdrawn), errors: count(x.topics.error) })) : null,
+                x.describe && x.describe.paused_until ? m('div', { className: 'HomepageBlocks-warn' }, t('status_paused', { time: when(x.describe.paused_until) })) : null,
+                x.describe && x.describe.enabled && x.describe.withdraw === false ? m('div', { className: 'HomepageBlocks-warn' }, t('status_no_withdraw')) : null,
+                m('div', { className: 'HomepageBlocks-progressText' }, x.queue.pending ? t('status_queue', { pending: count(x.queue.pending), failing: count(x.queue.failing), next: when(x.queue.next_at) }) : t('status_queue_empty')),
+                x.cooldown ? m('div', { className: 'HomepageBlocks-warn' }, t('status_cooldown', { seconds: x.cooldown.retry_after })) : null,
+                pending ? m('div', { className: 'HomepageBlocks-warn' }, t('status_' + pending)) : null,
+                x.problems.length ? [
+                    m('div', { className: 'HomepageBlocks-progressText' }, t('status_problems')),
+                    m('ul', { className: 'HomepageBlocks-whitelistProblems' }, x.problems.map((p) => m('li', [
+                        p.url ? m('a', { href: p.url, target: '_blank', rel: 'noopener noreferrer' }, p.title || ('#' + p.discussion_id)) : m('span', t('status_deleted_topic', { id: p.discussion_id })),
+                        ' — ', problemText(p), ' · ', m('span', { className: 'helpText' }, when(p.at)),
+                    ]))),
+                ] : m('div', { className: 'helpText' }, t('status_no_problems')),
+            ]),
+            m('div', { className: 'helpText' }, t('status_help')),
+        ]);
+    }
 
     function secretIsSet() {
         return String(app.data.settings[S + '.whitelist_api_secret_set'] || '') === '1';
@@ -69,8 +165,11 @@ export default function registerWhitelistSettings() {
             if (res.ok) {
                 const describe = res.describe ? ' ' + t('test_describe', { mode: t('describe_mode_' + res.describe) })
                     : settingIsTruthy(page.setting(S + '.whitelist_describe_enabled')()) ? ' ' + t('test_describe_unknown') : '';
-                const images = res.images === 'copy' ? ' ' + t('test_images_copy', { domains: (res.image_domains || []).join(', ') || '—' })
+                const pending = consentPending(res.consent);
+                const images = res.images === 'copy' && pending === 'withdraw_pending' ? ' ' + t('test_images_withdraw_pending')
+                    : res.images === 'copy' ? ' ' + t('test_images_copy', { domains: (res.image_domains || []).join(', ') || '—' })
                     : res.images === 'off' ? ' ' + t('test_images_off')
+                    : res.images === 'no_consent' && pending === 'consent_pending' ? ' ' + t('test_images_consent_pending')
                     : res.images === 'no_consent' ? ' ' + t('test_images_no_consent') : '';
                 st.testResult = { ok: true, text: t('test_ok', { count: res.whitelist_count === null || res.whitelist_count === undefined ? '?' : res.whitelist_count, mode: res.mode || '?', skew: res.skew_seconds || 0, ms: res.elapsed_ms || 0 }) + describe + images };
             } else {
@@ -81,18 +180,29 @@ export default function registerWhitelistSettings() {
             st.testResult = { ok: false, text: t('test_fail', { error: (e && e.response && e.response.error) || 'request failed' }) };
         }
         st.testBusy = false; m.redraw();
+        loadStatus();
+    }
+
+    function rateWait(e) {
+        const body = (e && e.response) || {};
+        return e && e.status === 503 && body.reason === 'http_429' ? Math.max(1, Number(body.retry_after) || 60) : 0;
     }
 
     async function runScan(resume) {
         const s = st.scan;
         if (s.running) return;
-        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false });
+        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false, queued: 0 });
         s.running = true; s.cancel = false; s.error = null; m.redraw();
         while (!s.done && !s.cancel) {
             let res;
             try {
                 res = await app.request({ method: 'POST', url: apiUrl() + '/tryhackx/homepage/whitelist/scan', body: { cursor: s.cursor }, errorHandler: () => {} });
             } catch (e) {
+                const wait = rateWait(e);
+                if (wait) {
+                    await waitFor(s, wait);
+                    continue;
+                }
                 const status = e && e.status;
                 const err = (e && e.response && e.response.error) || ('HTTP ' + status);
                 s.error = status === 409 ? t('scan_running') : status === 503 ? t('scan_cooldown') : t('scan_error', { error: err });
@@ -109,17 +219,18 @@ export default function registerWhitelistSettings() {
             s.hashes += res.hashes_found;
             s.skipped += res.skipped_no_tracker || 0; // "only our tracker" filter (older backends omit the field)
             s.sent += res.sent; s.added += res.added; s.exists += res.exists; s.banned += res.banned; s.invalid += res.invalid;
-            if (res.describe) {
-                s.describe = s.describe || {};
-                DESCRIBE_COUNTERS.forEach((k) => { s.describe[k] = (s.describe[k] || 0) + (res.describe[k] || 0); });
-                if (res.describe.off) s.describeOff = true;
-            }
+            s.queued += res.queued || 0;
+            addDescribe(s, res);
             s.done = !!res.done;
             m.redraw();
+            if (res.wait && !s.done) await waitFor(s, res.wait);
         }
         s.running = false;
         m.redraw();
-        if (s.done && !s.error) app.alerts.show({ type: 'success' }, t('scan_done', { processed: s.processed, hashes: s.hashes, added: s.added, exists: s.exists, banned: s.banned }));
+        if (s.done && !s.error) {
+            app.alerts.show({ type: 'success' }, t('scan_done', { processed: s.processed, hashes: s.hashes, added: s.added, exists: s.exists, banned: s.banned }));
+            if (s.describe) loadStatus();
+        }
     }
 
     function describeSaved() {
@@ -129,13 +240,18 @@ export default function registerWhitelistSettings() {
     async function runDescribeAll(resume) {
         const s = st.describeAll;
         if (s.running || st.scan.running) return;
-        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, error: null, done: false, describe: null });
+        if (!resume) Object.assign(s, { cursor: 0, processed: 0, total: null, error: null, done: false, describe: null, queued: 0 });
         s.running = true; s.cancel = false; s.error = null; s.describeOff = false; m.redraw();
         while (!s.done && !s.cancel) {
             let res;
             try {
                 res = await app.request({ method: 'POST', url: apiUrl() + '/tryhackx/homepage/whitelist/scan', body: { cursor: s.cursor, mode: 'describe' }, errorHandler: () => {} });
             } catch (e) {
+                const wait = rateWait(e);
+                if (wait) {
+                    await waitFor(s, wait);
+                    continue;
+                }
                 const status = e && e.status;
                 const err = (e && e.response && e.response.error) || ('HTTP ' + status);
                 s.error = status === 409 ? t('describe_all_running') : status === 503 ? t('scan_cooldown') : err === 'describe_disabled' ? t('describe_all_disabled') : t('scan_error', { error: err });
@@ -148,21 +264,20 @@ export default function registerWhitelistSettings() {
             }
             s.cursor = res.next_cursor;
             s.processed += res.processed;
-            if (res.describe) {
-                s.describe = s.describe || {};
-                DESCRIBE_COUNTERS.forEach((k) => { s.describe[k] = (s.describe[k] || 0) + (res.describe[k] || 0); });
-                if (res.describe.off) s.describeOff = true;
-            }
+            s.queued += res.queued || 0;
+            addDescribe(s, res);
             s.done = !!res.done;
             m.redraw();
             if (s.describeOff) break;
+            if (res.wait && !s.done) await waitFor(s, res.wait);
         }
         s.running = false;
         m.redraw();
         if (s.done && !s.error && !s.describeOff) {
             const d = s.describe || {};
-            app.alerts.show({ type: 'success' }, t('describe_all_done', { processed: s.processed, described: d.described || 0, unchanged: d.unchanged || 0 }));
+            app.alerts.show({ type: 'success' }, t('describe_all_done', { processed: s.processed, published: d.published || 0, waiting: d.waiting || 0, unchanged: d.unchanged || 0, withdrawn: d.withdrawn || 0 }));
         }
+        loadStatus();
     }
 
     app.registry.for(S)
@@ -288,18 +403,22 @@ export default function registerWhitelistSettings() {
                                 m('i', { className: 'fas fa-file-alt Button-icon icon' + (ds.running ? ' fa-spin' : '') }), ' ', t('describe_all_button'),
                             ]),
                             ds.running ? m('button', { type: 'button', className: 'Button', onclick: () => { ds.cancel = true; } }, t('scan_cancel')) : null,
-                            (!ds.running && !ds.done && ds.cursor > 0) ? m('button', { type: 'button', className: 'Button', disabled: dis || !describeSaved() || s.running, onclick: () => runDescribeAll(true) }, t('scan_resume')) : null,
+                            (!ds.running && !ds.done && (ds.cursor > 0 || ds.error || ds.describeOff || ds.cancel)) ? m('button', { type: 'button', className: 'Button', disabled: dis || !describeSaved() || s.running, onclick: () => runDescribeAll(true) }, t('scan_resume')) : null,
                         ]),
                         (ds.running || ds.processed > 0 || ds.error || ds.describeOff) ? m('div', { className: 'HomepageBlocks-progress' }, [
                             m('div', { className: 'HomepageBlocks-progressBar' }, m('div', { className: 'HomepageBlocks-progressFill' + (ds.error ? ' is-error' : ds.done ? ' is-done' : ''), style: 'width:' + dsPct + '%' })),
                             m('div', { className: 'HomepageBlocks-progressText' }, t('describe_all_progress', { processed: ds.processed, total: ds.total === null ? '?' : ds.total })),
-                            ds.describe ? m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress_describe', { described: ds.describe.described, unchanged: ds.describe.unchanged, kept: ds.describe.kept, tooLong: ds.describe.too_long, invalid: ds.describe.invalid, skipped: ds.describe.skipped })) : null,
+                            ds.describe ? m('div', { className: 'HomepageBlocks-progressText' }, describeLine(ds.describe)) : null,
+                            ds.queued ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_queued', { count: ds.queued })) : null,
+                            ds.waiting ? m('div', { className: 'HomepageBlocks-progressText' }, t('scan_waiting', { seconds: ds.waiting })) : null,
                             ds.describeOff ? m('div', { className: 'HomepageBlocks-warn' }, t('describe_all_off')) : null,
                             ds.error ? m('div', { className: 'HomepageBlocks-err' }, ds.error) : null,
                             ds.cancel && !ds.running ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_cancelled')) : null,
                         ]) : null,
                         m('div', { className: 'helpText' }, t('describe_all_help')),
                     ]),
+
+                    statusBlock(),
 
                     // Test connection
                     m('div', { className: 'HomepageBlocks-whitelistActions' }, [
@@ -317,12 +436,14 @@ export default function registerWhitelistSettings() {
                                 m('i', { className: 'fas fa-search Button-icon icon' + (s.running ? ' fa-spin' : '') }), ' ', t('scan_button'),
                             ]),
                             s.running ? m('button', { type: 'button', className: 'Button', onclick: () => { s.cancel = true; } }, t('scan_cancel')) : null,
-                            (!s.running && !s.done && s.cursor > 0) ? m('button', { type: 'button', className: 'Button', disabled: dis, onclick: () => runScan(true) }, t('scan_resume')) : null,
+                            (!s.running && !s.done && (s.cursor > 0 || s.error || s.cancel)) ? m('button', { type: 'button', className: 'Button', disabled: dis, onclick: () => runScan(true) }, t('scan_resume')) : null,
                         ]),
                         (s.running || s.processed > 0 || s.error) ? m('div', { className: 'HomepageBlocks-progress' }, [
                             m('div', { className: 'HomepageBlocks-progressBar' }, m('div', { className: 'HomepageBlocks-progressFill' + (s.error ? ' is-error' : s.done ? ' is-done' : ''), style: 'width:' + pct + '%' })),
                             m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress', { processed: s.processed, total: s.total === null ? '?' : s.total, hashes: s.hashes, skipped: s.skipped, added: s.added, exists: s.exists, banned: s.banned })),
-                            s.describe ? m('div', { className: 'HomepageBlocks-progressText' }, t('scan_progress_describe', { described: s.describe.described, unchanged: s.describe.unchanged, kept: s.describe.kept, tooLong: s.describe.too_long, invalid: s.describe.invalid, skipped: s.describe.skipped })) : null,
+                            s.describe ? m('div', { className: 'HomepageBlocks-progressText' }, describeLine(s.describe)) : null,
+                            s.queued ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_queued', { count: s.queued })) : null,
+                            s.waiting ? m('div', { className: 'HomepageBlocks-progressText' }, t('scan_waiting', { seconds: s.waiting })) : null,
                             s.describeOff ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_describe_off')) : null,
                             s.error ? m('div', { className: 'HomepageBlocks-err' }, s.error) : null,
                             s.cancel && !s.running ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_cancelled')) : null,

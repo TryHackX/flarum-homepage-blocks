@@ -17,9 +17,8 @@ use TryHackX\HomepageBlocks\Service\MagnetExtractor;
  *
  * Raw cURL like TrackerStatsController::fetchRaw (deliberately no HTTP-client dependency):
  * http/https only, no redirects (a redirect could leak the bearer to another host), TLS verified,
- * IPv4 forced, hard timeouts, response capped. Failure backoff lives in the shared Store so a dead
- * tracker slows post saves by at most one attempt per cooldown window (60 s transport failure,
- * 600 s after 403 = wrong key or banned IP). Never logs headers or the secret.
+ * IPv4 forced, hard timeouts, response capped. Failure backoff lives in the shared Store (60 s transport
+ * failure, 600 s after 403 = wrong key or banned IP). Never logs headers or the secret.
  *
  * Credentials are validated locally before any request: the tracker bans the source IP for 30 days
  * on ANY malformed or unknown auth attempt, so a typo must never reach the wire.
@@ -33,10 +32,16 @@ class TrackerWhitelistClient
     public const SECRET_RE = '/^[a-f0-9]{64}$/i';
     public const TOKEN_RE = '/^([a-f0-9]{16})\.([a-f0-9]{64})$/i';
     public const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+    public const DESCRIBE_TIMEOUT = 20;
+    public const PACE_CALLS = 40;
+    public const PACE_WINDOW = 60;
+    public const LIMITS_FRESH = 21600;
     private const DESCRIBE_OFF_SECONDS = 600;
     private const BACKOFF_KEY = 'whitelist:backoff';
     private const LAST_ERROR_KEY = 'whitelist:last_error';
     private const DESCRIBE_OFF_KEY = 'whitelist:describe_off';
+    private const LIMITS_KEY = 'whitelist:limits';
+    private const PACE_KEY = 'whitelist:pace';
     private const MAX_RESPONSE_BYTES = 262144;
 
     /** Base URL that already passed the DNS / reserved-range check in this process (scan batches reuse it). */
@@ -50,6 +55,11 @@ class TrackerWhitelistClient
         private LoggerInterface $logger,
         private Store $store,
     ) {
+    }
+
+    public static function truthy(mixed $v): bool
+    {
+        return $v === true || $v === '1' || $v === 1 || $v === 'true';
     }
 
     public function isEnabled(): bool
@@ -93,9 +103,14 @@ class TrackerWhitelistClient
 
     public function describePaused(): bool
     {
+        return $this->describePausedUntil() !== null;
+    }
+
+    public function describePausedUntil(): ?int
+    {
         $r = $this->store->read(self::DESCRIBE_OFF_KEY);
-        if (!$r || empty($r['value']['until'])) return false;
-        return (int) $r['value']['until'] > time();
+        $until = (int) ($r['value']['until'] ?? 0);
+        return $until > time() ? $until : null;
     }
 
     public function resumeDescribe(): void
@@ -192,9 +207,109 @@ class TrackerWhitelistClient
 
     public function inCooldown(): bool
     {
+        return $this->cooldown() !== null;
+    }
+
+    public function cooldown(): ?array
+    {
         $r = $this->store->read(self::BACKOFF_KEY);
-        if (!$r || empty($r['value']['until'])) return false;
-        return (int) $r['value']['until'] > time();
+        $until = (int) ($r['value']['until'] ?? 0);
+        if ($until <= time()) return null;
+        return ['until' => $until, 'retry_after' => $until - time(), 'reason' => (string) ($r['value']['reason'] ?? '')];
+    }
+
+    public function paceDelay(int $calls = 1): int
+    {
+        $now = time();
+        $log = $this->paceLog($now);
+        $calls = max(1, min(self::PACE_CALLS, $calls));
+        if (count($log) + $calls <= self::PACE_CALLS) return 0;
+        return max(1, $log[count($log) + $calls - self::PACE_CALLS - 1] + self::PACE_WINDOW - $now);
+    }
+
+    private function paceLog(int $now): array
+    {
+        $r = $this->store->read(self::PACE_KEY);
+        $log = array_values(array_filter((array) ($r['value']['t'] ?? []), fn ($t) => is_int($t) && $t > $now - self::PACE_WINDOW && $t <= $now));
+        sort($log);
+        return $log;
+    }
+
+    private function paceTake(): bool
+    {
+        try {
+            return (bool) $this->store->withLock(self::PACE_KEY, function (): bool {
+                $now = time();
+                $log = $this->paceLog($now);
+                if (count($log) >= self::PACE_CALLS) return false;
+                $log[] = $now;
+                $this->store->write(self::PACE_KEY, ['t' => $log], self::PACE_WINDOW + 5);
+                return true;
+            }, true, true);
+        } catch (\Throwable $e) {
+            return true;
+        }
+    }
+
+    public function describeLimits(): array
+    {
+        $r = $this->store->read(self::LIMITS_KEY);
+        $v = is_array($r['value'] ?? null) ? $r['value'] : [];
+        return [
+            'chars' => isset($v['chars']) ? (int) $v['chars'] : null,
+            'bytes' => isset($v['bytes']) ? (int) $v['bytes'] : DescriptionPayload::MAX_BYTES,
+            'topics' => isset($v['topics']) ? (int) $v['topics'] : DescriptionPayload::MAX_TOPICS,
+            'hashes' => isset($v['hashes']) ? (int) $v['hashes'] : DescriptionPayload::MAX_HASHES,
+            'withdraw' => isset($v['withdraw']) ? (bool) $v['withdraw'] : null,
+            'at' => isset($v['at']) ? (int) $v['at'] : null,
+        ];
+    }
+
+    public function limitsStale(): bool
+    {
+        $at = $this->describeLimits()['at'];
+        return $at === null || time() - $at > self::LIMITS_FRESH;
+    }
+
+    public static function limitsFrom(array $json, bool $ping, array $current): array
+    {
+        $fields = $ping
+            ? ['chars' => 'describe_max_chars', 'bytes' => 'describe_max_bytes', 'topics' => 'describe_max_topics', 'hashes' => 'describe_max_hashes']
+            : ['bytes' => 'max_bytes', 'topics' => 'max_topics', 'hashes' => 'max_hashes'];
+        $ranges = ['chars' => [1, 16000000], 'bytes' => [65536, 67108864], 'topics' => [1, 1000], 'hashes' => [1, 1000]];
+        $out = array_intersect_key($current, array_flip(['chars', 'bytes', 'topics', 'hashes', 'withdraw', 'at']));
+        foreach ($fields as $key => $field) {
+            if (isset($json[$field]) && is_numeric($json[$field])) {
+                $out[$key] = max($ranges[$key][0], min($ranges[$key][1], (int) $json[$field]));
+            }
+        }
+        if ($ping) {
+            $out['withdraw'] = isset($json['describe_max_hashes']);
+            $out['at'] = time();
+        } elseif (is_array($json['summary'] ?? null) && array_key_exists('withdrawn', $json['summary'])) {
+            $out['withdraw'] = true;
+        }
+        return $out;
+    }
+
+    private function noteLimits(array $json, bool $ping): void
+    {
+        try {
+            $r = $this->store->read(self::LIMITS_KEY);
+            $current = is_array($r['value'] ?? null) ? $r['value'] : [];
+            $next = self::limitsFrom($json, $ping, $current);
+            if ($next !== $current) $this->store->write(self::LIMITS_KEY, $next, 7 * 86400);
+        } catch (\Throwable $e) {
+        }
+    }
+
+    public static function consentEchoed(array $json, bool $sent): bool
+    {
+        if (array_key_exists('copy_images', $json) && is_bool($json['copy_images'])) return $json['copy_images'] === $sent;
+        $images = $json['images'] ?? null;
+        if ($images === 'copy') return $sent;
+        if ($images === 'no_consent') return !$sent;
+        return true;
     }
 
     private function setCooldown(int $seconds, string $reason): void
@@ -241,19 +356,34 @@ class TrackerWhitelistClient
     {
         if (!$topics) return ['ok' => true, 'status' => 0, 'json' => ['results' => [], 'summary' => []], 'error' => null, 'elapsed_ms' => 0];
         if ($this->describePaused()) return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'describe_off', 'elapsed_ms' => 0];
-        $r = $this->request('POST', 'v1/whitelist/describe', DescriptionPayload::body($topics, $maxChars, $this->copyImages()), $timeout ?? $this->timeoutSeconds());
+        $r = $this->request('POST', 'v1/whitelist/describe', DescriptionPayload::body($topics, $maxChars, $this->copyImages()), $timeout ?? self::DESCRIBE_TIMEOUT, null, ['soft' => true]);
         if ($r['ok'] && ($r['json']['ok'] ?? true) === false) {
             $r['ok'] = false;
             $r['error'] = (string) ($r['json']['error'] ?? 'describe_failed');
             if ($r['error'] === 'describe_off') $this->pauseDescribe();
         }
+        if ($r['ok'] && is_array($r['json'])) $this->noteLimits($r['json'], false);
         return $r;
     }
 
     /** Health check; $override = ['api_url','api_key_id','api_secret'] for unsaved admin values. */
-    public function ping(?array $override = null, int $timeout = 6): array
+    public function ping(?array $override = null, int $timeout = 6, ?bool $consent = null): array
     {
-        return $this->request('GET', 'v1/whitelist/ping&copy_images=' . ($this->copyImages() ? '1' : '0'), null, $timeout, $override);
+        $endpoint = 'v1/whitelist/ping' . ($consent === null ? '' : '&copy_images=' . ($consent ? '1' : '0'));
+        $r = $this->request('GET', $endpoint, null, $timeout, $override, ['pace' => false]);
+        if ($r['ok'] && is_array($r['json']) && ($r['json']['ok'] ?? true) !== false && $this->sameAsSaved($override)) {
+            $this->noteLimits($r['json'], true);
+        }
+        return $r;
+    }
+
+    private function sameAsSaved(?array $override): bool
+    {
+        if (!$override) return true;
+        if (isset($override['api_secret'])) return false;
+        if (isset($override['api_url']) && self::validateUrl((string) $override['api_url']) !== $this->apiUrl()) return false;
+        return !isset($override['api_key_id'])
+            || strtolower(trim((string) $override['api_key_id'])) === strtolower(trim((string) $this->settings->get(self::S . '.whitelist_api_key_id')));
     }
 
     public static function retryAfterSeconds(?string $header, int $default = 30): int
@@ -268,9 +398,10 @@ class TrackerWhitelistClient
         return max(1, min(3600, $seconds));
     }
 
-    protected function request(string $method, string $endpoint, ?array $body, int $timeout, ?array $override = null): array
+    protected function request(string $method, string $endpoint, ?array $body, int $timeout, ?array $override = null, array $flags = []): array
     {
         $t0 = microtime(true);
+        $soft = !empty($flags['soft']);
         $base = $this->apiUrl($override['api_url'] ?? null);
         if ($base === null) return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'invalid_url', 'elapsed_ms' => 0];
         $creds = $this->credentials($override);
@@ -285,6 +416,9 @@ class TrackerWhitelistClient
         if (!$this->resolvesPublic($base)) {
             $this->noteError('Tracker URL refused: the host resolves to a private/reserved address (use a public hostname or a literal IP).');
             return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'invalid_url', 'elapsed_ms' => (int) ((microtime(true) - $t0) * 1000)];
+        }
+        if (($flags['pace'] ?? true) && !$this->paceTake()) {
+            return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'paced', 'elapsed_ms' => 0, 'retry_after' => $this->paceDelay()];
         }
 
         $url = $base . '/api.php?endpoint=' . $endpoint;
@@ -324,7 +458,7 @@ class TrackerWhitelistClient
         $elapsed = (int) ((microtime(true) - $t0) * 1000);
 
         if ($raw === false || $raw === null) {
-            $this->setCooldown(60, 'transport');
+            if (!$soft) $this->setCooldown(60, 'transport');
             $this->noteError('Tracker unreachable: ' . ($curlErr ?: 'transport error'));
             return ['ok' => false, 'status' => 0, 'json' => null, 'error' => 'transport: ' . mb_substr($curlErr, 0, 120), 'elapsed_ms' => $elapsed];
         }
@@ -340,13 +474,19 @@ class TrackerWhitelistClient
         if ($status === 413) {
             return ['ok' => false, 'status' => $status, 'json' => $json, 'error' => 'http_413' . ($json && isset($json['error']) ? ':' . $json['error'] : ''), 'elapsed_ms' => $elapsed];
         }
+        if ($status === 429) {
+            $wait = self::retryAfterSeconds($retryAfter ?? (isset($json['retry_after']) && is_numeric($json['retry_after']) ? (string) (int) $json['retry_after'] : null), 60);
+            $this->setCooldown($wait, 'http_429');
+            $this->noteError('Tracker returned HTTP 429' . ($json && isset($json['error']) ? ' (' . $json['error'] . ')' : '') . ' — waiting ' . $wait . ' s');
+            return ['ok' => false, 'status' => 429, 'json' => $json, 'error' => 'http_429' . ($json && isset($json['error']) ? ':' . $json['error'] : ''), 'elapsed_ms' => $elapsed, 'retry_after' => $wait];
+        }
         if ($status < 200 || $status >= 300) {
-            $this->setCooldown($status === 429 ? self::retryAfterSeconds($retryAfter) : ($status >= 500 ? 60 : 30), 'http_' . $status);
+            if (!$soft) $this->setCooldown($status >= 500 ? 60 : 30, 'http_' . $status);
             $this->noteError('Tracker returned HTTP ' . $status . ($json && isset($json['error']) ? ' (' . $json['error'] . ')' : ''));
             return ['ok' => false, 'status' => $status, 'json' => $json, 'error' => 'http_' . $status . ($json && isset($json['error']) ? ':' . $json['error'] : ''), 'elapsed_ms' => $elapsed];
         }
         if ($json === null) {
-            $this->setCooldown(60, 'invalid_json');
+            if (!$soft) $this->setCooldown(60, 'invalid_json');
             $this->noteError('Tracker returned a non-JSON response');
             return ['ok' => false, 'status' => $status, 'json' => null, 'error' => 'invalid_json', 'elapsed_ms' => $elapsed];
         }

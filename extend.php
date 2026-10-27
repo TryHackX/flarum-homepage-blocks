@@ -12,7 +12,10 @@ use TryHackX\HomepageBlocks\Api\Controller\FacetsController;
 use TryHackX\HomepageBlocks\Api\Controller\TrackerStatsController;
 use TryHackX\HomepageBlocks\Api\Controller\WhitelistScanController;
 use TryHackX\HomepageBlocks\Api\Controller\WhitelistSecretController;
+use TryHackX\HomepageBlocks\Api\Controller\WhitelistStatusController;
 use TryHackX\HomepageBlocks\Api\Controller\WhitelistTestController;
+use TryHackX\HomepageBlocks\Console\TrackerSyncCommand;
+use TryHackX\HomepageBlocks\Frontend\ScheduleTrackerSync;
 use TryHackX\HomepageBlocks\Listener\SyncPostMagnetsToTracker;
 use TryHackX\HomepageBlocks\Api\Middleware\SearchRateLimitMiddleware;
 use TryHackX\HomepageBlocks\Search\RatingFilter;
@@ -43,7 +46,8 @@ return [
 
     (new Extend\Frontend('admin'))
         ->js(__DIR__ . '/js/dist/admin.js')
-        ->css(__DIR__ . '/resources/less/admin.less'),
+        ->css(__DIR__ . '/resources/less/admin.less')
+        ->content(ScheduleTrackerSync::class),
 
     new Extend\Locales(__DIR__ . '/resources/locale'),
 
@@ -65,6 +69,7 @@ return [
         ->post('/tryhackx/homepage/whitelist/test', 'tryhackx.homepage.whitelist.test', WhitelistTestController::class)
         ->post('/tryhackx/homepage/whitelist/scan', 'tryhackx.homepage.whitelist.scan', WhitelistScanController::class)
         ->post('/tryhackx/homepage/whitelist/secret', 'tryhackx.homepage.whitelist.secret', WhitelistSecretController::class)
+        ->get('/tryhackx/homepage/whitelist/status', 'tryhackx.homepage.whitelist.status', WhitelistStatusController::class)
         // Advanced Filters index (admin-only, assertAdmin inside).
         ->get('/tryhackx/homepage/meta/status', 'tryhackx.homepage.meta.status', MetaIndexController::class)
         ->post('/tryhackx/homepage/meta/reindex', 'tryhackx.homepage.meta.reindex', MetaIndexController::class)
@@ -83,13 +88,10 @@ return [
             unset($event->settings['tryhackx-homepage-blocks.whitelist_api_secret']);
             $event->settings['tryhackx-homepage-blocks.whitelist_api_secret_set'] = ($secret !== null && $secret !== '') ? '1' : '0';
         })
-        ->listen(\Flarum\Post\Event\Posted::class, SyncPostMagnetsToTracker::class)
-        ->listen(\Flarum\Post\Event\Revised::class, SyncPostMagnetsToTracker::class)
-        ->listen(\Flarum\Settings\Event\Saved::class, [SyncPostMagnetsToTracker::class, 'settingsSaved']),
-    (new Extend\Conditional())
-        ->whenExtensionEnabled('flarum-approval', fn () => [
-            (new Extend\Event())->listen(\Flarum\Approval\Event\PostWasApproved::class, SyncPostMagnetsToTracker::class),
-        ]),
+        ->subscribe(SyncPostMagnetsToTracker::class),
+    (new Extend\Console())
+        ->command(TrackerSyncCommand::class)
+        ->schedule(TrackerSyncCommand::class, fn ($event) => $event->everyMinute()),
 
     // Twarda bramka serwerowa limitera na rdzeniowym GET /api/discussions z ciężkim
     // filtrem title/user (LIKE). Pre-flight /points/check to tylko UX — to middleware

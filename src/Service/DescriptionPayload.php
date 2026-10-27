@@ -10,10 +10,23 @@ final class DescriptionPayload
     public const MAX_TOPICS = 25;
     public const MAX_BYTES = 3500000;
     public const MAX_URL = 500;
-    public const DESCRIBED = ['created', 'queued', 'updated', 'replaced', 'proposed'];
-    public const COUNTED = ['unchanged', 'kept', 'too_long', 'invalid', 'skipped'];
+    public const COUNTERS = [
+        'published' => ['created', 'updated', 'replaced'],
+        'waiting' => ['queued'],
+        'proposed' => ['proposed'],
+        'unchanged' => ['unchanged'],
+        'kept' => ['kept'],
+        'withdrawn' => ['withdrawn', 'released'],
+        'too_long' => ['too_long', 'too_big'],
+        'invalid' => ['invalid'],
+        'skipped' => ['skipped'],
+        'errors' => ['error'],
+    ];
+    public const SKIPPED = ['not_registered', 'registered_elsewhere', 'banned', 'other_topic', 'removed', 'declined', 'stale'];
+    public const FAILED = ['error', 'invalid', 'too_long', 'too_big'];
+    public const STATES = ['published', 'waiting', 'proposed', 'unchanged', 'withdrawn', 'error'];
 
-    public static function topics(int $discussionId, int $postId, ?string $url, ?array $author, ?\DateTimeInterface $editedAt, ?string $content, int $maxChars, array $hashes): array
+    public static function topics(int $discussionId, int $postId, ?string $url, ?array $author, ?\DateTimeInterface $editedAt, ?string $content, int $maxChars, array $hashes, int $maxHashes = self::MAX_HASHES): array
     {
         $content = (string) $content;
         $chars = mb_strlen($content);
@@ -26,10 +39,77 @@ final class DescriptionPayload
         $topic['chars'] = $chars;
 
         $out = [];
-        foreach (array_chunk(array_values(array_unique($hashes)), self::MAX_HASHES) as $chunk) {
+        foreach (array_chunk(array_values(array_unique($hashes)), max(1, $maxHashes)) as $chunk) {
             $out[] = $topic + ['hashes' => $chunk];
         }
         return $out;
+    }
+
+    public static function hidden(int $discussionId, int $postId, array $hashes, bool $gone, int $maxHashes = self::MAX_HASHES): array
+    {
+        $topic = ['discussion_id' => $discussionId, 'post_id' => $postId, 'visible' => false];
+        if ($gone) $topic['gone'] = true;
+        $out = [];
+        foreach (array_chunk(array_values(array_unique($hashes)), max(1, $maxHashes)) as $chunk) {
+            $out[] = $topic + ['hashes' => $chunk];
+        }
+        return $out;
+    }
+
+    public static function plan(?array $sent, bool $visible, bool $private, array $present, array $eligible): array
+    {
+        $sentHashes = array_values(array_unique($sent['hashes'] ?? []));
+        $here = array_flip($present);
+        $gone = array_values(array_filter($sentHashes, fn ($h) => !isset($here[$h])));
+        $kept = array_values(array_filter($sentHashes, fn ($h) => isset($here[$h])));
+        $eligible = array_values(array_unique($eligible));
+        if ($visible) {
+            $describe = $eligible;
+            $withdraw = [];
+        } else {
+            $describe = [];
+            $withdraw = $sent === null ? ($private ? [] : $eligible) : (!empty($sent['visible']) ? $kept : []);
+        }
+        return [
+            'describe' => $describe,
+            'withdraw' => $withdraw,
+            'gone' => $gone,
+            'keep' => array_values(array_unique(array_merge($kept, $describe, $withdraw))),
+        ];
+    }
+
+    public static function fingerprint(array $topics): string
+    {
+        return sha1((string) json_encode(array_values($topics), TrackerWhitelistClient::JSON_FLAGS));
+    }
+
+    public static function topicState(array $results, ?string $previous = null): array
+    {
+        $problem = null;
+        $seen = [];
+        foreach ($results as $r) {
+            $status = (string) ($r['status'] ?? '');
+            $seen[$status] = true;
+            $bad = in_array($status, self::FAILED, true)
+                || (empty($r['hidden']) && $status !== 'stale' && in_array($status, self::SKIPPED, true));
+            if ($bad && ($problem === null || ($status === 'error' && $problem['status'] !== 'error'))) $problem = $r;
+        }
+        if ($problem !== null) {
+            $detail = trim((string) ($problem['detail'] ?? ''));
+            return ['error', (string) $problem['status'], $detail !== '' ? $detail : ($problem['hash'] ?? null)];
+        }
+        if (isset($seen['proposed'])) return ['proposed', 'proposed', null];
+        if (isset($seen['queued'])) return ['waiting', 'queued', null];
+        foreach (self::COUNTERS['published'] as $status) {
+            if (isset($seen[$status])) return ['published', $status, null];
+        }
+        if (array_filter($results, fn ($r) => empty($r['hidden']))) {
+            return [in_array($previous, ['published', 'waiting', 'proposed'], true) ? $previous : 'unchanged', isset($seen['kept']) ? 'kept' : 'unchanged', null];
+        }
+        foreach (['withdrawn', 'released'] as $status) {
+            if (isset($seen[$status])) return ['withdrawn', $status, null];
+        }
+        return ['withdrawn', $results ? (string) ($results[0]['status'] ?? '') : null, null];
     }
 
     public static function body(array $topics, int $maxChars, bool $copyImages): array
@@ -65,18 +145,20 @@ final class DescriptionPayload
 
     public static function tally(array $summary, array $totals = []): array
     {
-        $totals['described'] = (int) ($totals['described'] ?? 0);
-        foreach (self::DESCRIBED as $k) $totals['described'] += (int) ($summary[$k] ?? 0);
-        foreach (self::COUNTED as $k) $totals[$k] = (int) ($totals[$k] ?? 0) + (int) ($summary[$k] ?? 0);
+        foreach (self::COUNTERS as $counter => $statuses) {
+            $totals[$counter] = (int) ($totals[$counter] ?? 0);
+            foreach ($statuses as $status) $totals[$counter] += (int) ($summary[$status] ?? 0);
+        }
         return $totals;
     }
 
     public static function sentThrough(array $topics, int $sent, int $fallback): int
     {
-        $next = $topics[$sent]['post_id'] ?? null;
+        $at = fn ($topic) => is_array($topic) ? (int) $topic['post_id'] : (int) $topic;
+        $next = isset($topics[$sent]) ? $at($topics[$sent]) : null;
         $through = $fallback;
         foreach (array_slice($topics, 0, $sent) as $topic) {
-            if ($topic['post_id'] !== $next) $through = max($through, (int) $topic['post_id']);
+            if ($at($topic) !== $next) $through = max($through, $at($topic));
         }
         return $through;
     }

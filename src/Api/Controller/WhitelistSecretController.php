@@ -9,6 +9,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
+use TryHackX\HomepageBlocks\Service\TrackerSync;
 
 /**
  * POST /api/tryhackx/homepage/whitelist/secret — admin-only. Body {secret: "..."} stores the tracker
@@ -41,6 +42,7 @@ class WhitelistSecretController implements RequestHandlerInterface
             return new JsonResponse(['ok' => false, 'error' => 'invalid_secret'], 422);
         }
         $this->settings->set($key, strtolower($secret));
+        $this->settings->set(TrackerSync::CONSENT_SENT, '');
         return new JsonResponse(['ok' => true, 'set' => true, 'key_id' => (string) $this->settings->get('tryhackx-homepage-blocks.whitelist_api_key_id')]);
     }
 }

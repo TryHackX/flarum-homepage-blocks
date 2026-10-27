@@ -14,9 +14,14 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\DatabaseTransactionsManager;
+use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\Test;
 use TryHackX\HomepageBlocks\Cache\Store;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
+use TryHackX\HomepageBlocks\Service\DescriptionPayload;
+use TryHackX\HomepageBlocks\Service\SentTopics;
+use TryHackX\HomepageBlocks\Service\TrackerQueue;
+use TryHackX\HomepageBlocks\Service\TrackerSync;
 
 /**
  * The tracker whitelist sync runs after the transaction that saved the post commits —
@@ -92,6 +97,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertCount(1, $this->tracker->calls, 'exactly one submit');
         $this->assertSame(1, $this->tracker->calls[0]['level'], 'after the discussion transaction committed (level 2 → 1)');
         $this->assertStringContainsString(self::HASH, json_encode($this->tracker->calls[0]['items']));
+        $this->assertTrue($this->tracker->calls[0]['items'][0]['ref']['first'] ?? false, 'registered by the first post of its topic');
     }
 
     #[Test]
@@ -109,6 +115,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
 
         $this->assertCount(1, $this->tracker->calls);
         $this->assertLessThanOrEqual(1, $this->tracker->calls[0]['level'], 'never inside an open app transaction');
+        $this->assertArrayNotHasKey('first', $this->tracker->calls[0]['items'][0]['ref'], 'a reply is not the first post');
     }
 
     #[Test]
@@ -120,6 +127,71 @@ class WhitelistSyncAfterCommitTest extends TestCase
 
         $this->assertCount(1, $this->tracker->calls);
         $this->assertNotNull($this->database()->table('discussions')->where('id', $data['id'])->first(), 'the discussion is saved');
+        $row = $this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $data['id'])->first();
+        $this->assertNotNull($row);
+        $this->assertSame(1, (int) $row->attempts);
+        $this->assertSame('tracker down', $row->last_error);
+        $this->assertGreaterThan(Carbon::now()->addSeconds(30), Carbon::parse($row->next_at));
+    }
+
+    private function drain(): array
+    {
+        return $this->app()->getContainer()->make(TrackerSync::class)->drain();
+    }
+
+    private function makeDue(int $discussionId): void
+    {
+        $this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $discussionId)->update(['next_at' => Carbon::now()->subSecond()]);
+    }
+
+    #[Test]
+    public function a_change_the_tracker_missed_is_sent_by_a_later_drain(): void
+    {
+        $this->tracker->describeOn = true;
+        $this->tracker->describeError = 'http_503';
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->assertCount(1, $this->tracker->described);
+        $row = $this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $data['id'])->first();
+        $this->assertSame(TrackerQueue::DESCRIBE, $row->reason, 'the magnets went through, only the description waits');
+        $this->assertSame('describe: http_503', $row->last_error);
+
+        $this->tracker->describeError = null;
+        $this->assertSame(0, $this->drain()['synced'], 'not before its retry time');
+        $this->makeDue((int) $data['id']);
+        $this->assertSame(1, $this->drain()['synced']);
+
+        $this->assertCount(1, $this->tracker->calls);
+        $this->assertCount(2, $this->tracker->described);
+        $this->assertNull($this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $data['id'])->first());
+        $sent = $this->app()->getContainer()->make(SentTopics::class)->get((int) $data['id']);
+        $this->assertSame([self::HASH], $sent['hashes']);
+        $this->assertTrue($sent['visible']);
+        $this->assertSame('published', $sent['state']);
+    }
+
+    #[Test]
+    public function a_rate_limited_change_waits_without_counting_as_a_failure(): void
+    {
+        $this->tracker->describeOn = true;
+        $this->tracker->describeError = 'http_429';
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+
+        $row = $this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $data['id'])->first();
+        $this->assertSame(0, (int) $row->attempts);
+        $this->assertSame(TrackerQueue::DESCRIBE, $row->reason);
+        $this->assertGreaterThan(Carbon::now()->addSeconds(20), Carbon::parse($row->next_at));
+    }
+
+    #[Test]
+    public function an_unchanged_first_post_is_not_described_again(): void
+    {
+        $this->tracker->describeOn = true;
+        $discussion = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+
+        $this->reply($discussion, 'magnet:?xt=urn:btih:' . self::OTHER_HASH);
+
+        $this->assertCount(2, $this->tracker->calls);
+        $this->assertCount(1, $this->tracker->described);
     }
 
     private function firstPostId(array $discussion): int
@@ -201,7 +273,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
     }
 
     #[Test]
-    public function a_post_awaiting_approval_syncs_nothing_until_it_is_approved(): void
+    public function a_post_a_guest_cannot_see_syncs_nothing_until_it_can(): void
     {
         $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
         $this->tracker->calls = [];
@@ -209,12 +281,14 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $post = CommentPost::query()->findOrFail($this->firstPostId($data));
         $events = $this->app()->getContainer()->make(Dispatcher::class);
 
-        $post->is_approved = false;
+        $post->is_private = true;
+        $post->save();
         $events->dispatch(new Posted($post));
         $this->assertCount(0, $this->tracker->calls);
         $this->assertCount(0, $this->tracker->described);
 
-        $post->is_approved = true;
+        $post->is_private = false;
+        $post->save();
         $events->dispatch(new Posted($post));
         $this->assertCount(1, $this->tracker->calls);
         $this->assertCount(1, $this->tracker->described);
@@ -245,7 +319,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
 
         $this->assertTrue($result['ok']);
         $this->assertTrue($result['done']);
-        $this->assertSame(['described' => 1, 'unchanged' => 0, 'kept' => 0, 'too_long' => 0, 'invalid' => 0, 'skipped' => 0, 'off' => false], $result['describe']);
+        $this->assertSame(['published' => 1, 'off' => false], array_filter($result['describe'], fn ($n) => $n !== 0));
         $this->assertCount(1, $this->tracker->calls);
         $this->assertCount(1, $this->tracker->described);
         $this->assertSame(1, $this->tracker->described[0]['submits']);
@@ -282,18 +356,22 @@ class WhitelistSyncAfterCommitTest extends TestCase
     }
 
     #[Test]
-    public function a_describe_failure_keeps_the_scan_cursor(): void
+    public function a_describe_failure_queues_the_topic_and_the_scan_goes_on(): void
     {
-        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
         $this->tracker->describeOn = true;
         $this->tracker->describeError = 'http_503';
 
         $result = $this->scan();
 
-        $this->assertFalse($result['ok']);
-        $this->assertSame(0, $result['next_cursor']);
-        $this->assertFalse($result['done']);
-        $this->assertSame('describe: http_503', $result['error']);
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['done']);
+        $this->assertSame($this->firstPostId($data), $result['next_cursor']);
+        $this->assertSame(1, $result['queued']);
+        $this->assertSame(1, $result['describe']['errors']);
+        $row = $this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $data['id'])->first();
+        $this->assertSame('describe: http_503', $row->last_error);
+        $this->assertSame(1, (int) $row->attempts);
     }
 
     #[Test]
@@ -309,7 +387,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertTrue($result['done']);
         $this->assertSame($this->firstPostId($data), $result['next_cursor']);
         $this->assertTrue($result['describe']['off']);
-        $this->assertSame(0, $result['describe']['described']);
+        $this->assertSame(0, $result['describe']['published']);
     }
 
     private function saveSettings(array $settings): void
@@ -328,11 +406,51 @@ class WhitelistSyncAfterCommitTest extends TestCase
 
         $this->assertCount(1, $this->tracker->pings);
         $this->assertNull($this->tracker->pings[0]['override']);
-        $this->assertSame('1', $this->app()->getContainer()->make(SettingsRepositoryInterface::class)->get('tryhackx-homepage-blocks.whitelist_image_copy'));
+        $this->assertTrue($this->tracker->pings[0]['consent']);
+        $settings = $this->app()->getContainer()->make(SettingsRepositoryInterface::class);
+        $this->assertSame('1', $settings->get('tryhackx-homepage-blocks.whitelist_image_copy'));
+        $this->assertSame('1', $settings->get(TrackerSync::CONSENT_SENT));
 
         $this->saveSettings(['tryhackx-homepage-blocks.whitelist_image_copy' => '0']);
 
         $this->assertCount(2, $this->tracker->pings);
+        $this->assertFalse($this->tracker->pings[1]['consent']);
+        $this->assertSame('0', $settings->get(TrackerSync::CONSENT_SENT));
+    }
+
+    #[Test]
+    public function the_consent_is_sent_again_until_the_tracker_agrees(): void
+    {
+        $this->tracker->pingJson = ['ok' => true, 'images' => 'no_consent', 'image_domains' => ['tryhackx.org']];
+        $this->saveSettings(['tryhackx-homepage-blocks.whitelist_image_copy' => '1']);
+        $settings = $this->app()->getContainer()->make(SettingsRepositoryInterface::class);
+        $this->assertCount(1, $this->tracker->pings);
+        $this->assertSame('', (string) $settings->get(TrackerSync::CONSENT_SENT));
+
+        $this->drain();
+        $this->assertCount(1, $this->tracker->pings, 'an answer that disagrees is asked again after a pause, not on every drain');
+
+        $this->app()->getContainer()->make(Store::class)->write('whitelist:consent_try', ['wanted' => true, 'at' => time() - 3600], 60);
+        $this->tracker->pingJson = ['ok' => true, 'images' => 'copy', 'image_domains' => ['tryhackx.org']];
+        $this->drain();
+        $this->assertCount(2, $this->tracker->pings);
+        $this->assertTrue($this->tracker->pings[1]['consent']);
+        $this->assertSame('1', $settings->get(TrackerSync::CONSENT_SENT));
+
+        $this->drain();
+        $this->assertCount(2, $this->tracker->pings);
+    }
+
+    #[Test]
+    public function test_connection_never_pushes_the_consent(): void
+    {
+        $this->setting('tryhackx-homepage-blocks.whitelist_image_copy', '0');
+
+        $result = $this->testConnection();
+
+        $this->assertCount(1, $this->tracker->pings);
+        $this->assertNull($this->tracker->pings[0]['consent']);
+        $this->assertSame(['wanted' => false, 'confirmed' => null], $result['consent']);
     }
 
     #[Test]
@@ -403,7 +521,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertSame(3, $result['total_posts']);
         $this->assertSame(3, $result['processed']);
         $this->assertSame($this->firstPostId($last), $result['next_cursor']);
-        $this->assertSame(2, $result['describe']['described']);
+        $this->assertSame(2, $result['describe']['published']);
         $this->assertCount(1, $this->tracker->calls);
         $items = json_encode($this->tracker->calls[0]['items']);
         $this->assertStringContainsString(self::HASH, $items);
@@ -443,17 +561,35 @@ class WhitelistSyncAfterCommitTest extends TestCase
     }
 
     #[Test]
-    public function a_failed_describe_keeps_the_description_pass_cursor(): void
+    public function a_failed_describe_queues_the_topic_and_the_description_pass_goes_on(): void
     {
-        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
         $this->tracker->describeOn = true;
         $this->tracker->describeError = 'http_503';
 
         [, $result] = $this->describeAll();
 
-        $this->assertFalse($result['ok']);
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['done']);
+        $this->assertSame($this->firstPostId($data), $result['next_cursor']);
+        $this->assertSame(1, $result['queued']);
+        $this->assertNotNull($this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $data['id'])->first());
+    }
+
+    #[Test]
+    public function a_rate_limit_makes_the_description_pass_wait_instead_of_failing(): void
+    {
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->describeOn = true;
+        $this->tracker->describeError = 'http_429';
+
+        [, $result] = $this->describeAll();
+
+        $this->assertTrue($result['ok']);
+        $this->assertFalse($result['done']);
         $this->assertSame(0, $result['next_cursor']);
-        $this->assertSame('describe: http_503', $result['error']);
+        $this->assertSame(30, $result['wait']);
+        $this->assertSame(0, $result['queued']);
     }
 
     #[Test]
@@ -517,6 +653,281 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertCount(0, $this->tracker->calls);
         $this->assertCount(0, $this->tracker->described);
     }
+
+    private function patch(string $type, int $id, array $attributes, array $relationships = []): void
+    {
+        $data = ['type' => $type, 'id' => (string) $id];
+        if ($attributes) {
+            $data['attributes'] = $attributes;
+        }
+        if ($relationships) {
+            $data['relationships'] = $relationships;
+        }
+        $response = $this->send($this->request('PATCH', '/api/' . $type . '/' . $id, [
+            'authenticatedAs' => 1,
+            'json' => ['data' => $data],
+        ]));
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    private function lastDescribed(): array
+    {
+        return $this->tracker->described[count($this->tracker->described) - 1]['topics'];
+    }
+
+    private function sentRow(array $discussion): ?array
+    {
+        return $this->app()->getContainer()->make(SentTopics::class)->get((int) $discussion['id']);
+    }
+
+    #[Test]
+    public function hiding_the_first_post_withdraws_the_topic_and_restoring_sends_it_again(): void
+    {
+        $this->tracker->describeOn = true;
+        $content = "Opis\nmagnet:?xt=urn:btih:" . self::HASH;
+        $data = $this->startDiscussion($content);
+        $postId = $this->firstPostId($data);
+
+        $this->patch('posts', $postId, ['isHidden' => true]);
+
+        $this->assertSame([['discussion_id' => (int) $data['id'], 'post_id' => $postId, 'visible' => false, 'hashes' => [self::HASH]]], $this->lastDescribed());
+        $sent = $this->sentRow($data);
+        $this->assertFalse($sent['visible']);
+        $this->assertSame('withdrawn', $sent['state']);
+        $this->assertSame([self::HASH], $sent['hashes']);
+
+        $this->patch('posts', $postId, ['isHidden' => false]);
+
+        $topics = $this->lastDescribed();
+        $this->assertCount(3, $this->tracker->described);
+        $this->assertCount(1, $topics);
+        $this->assertSame($content, $topics[0]['content']);
+        $this->assertArrayNotHasKey('visible', $topics[0]);
+        $this->assertTrue($this->sentRow($data)['visible']);
+        $this->assertSame('published', $this->sentRow($data)['state']);
+    }
+
+    #[Test]
+    public function hiding_the_discussion_withdraws_the_topic_and_restoring_sends_it_again(): void
+    {
+        $this->tracker->describeOn = true;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+
+        $this->patch('discussions', (int) $data['id'], ['isHidden' => true]);
+
+        $this->assertSame(false, $this->lastDescribed()[0]['visible']);
+        $this->assertFalse($this->sentRow($data)['visible']);
+
+        $this->patch('discussions', (int) $data['id'], ['isHidden' => false]);
+
+        $this->assertCount(3, $this->tracker->described);
+        $this->assertArrayNotHasKey('visible', $this->lastDescribed()[0]);
+        $this->assertTrue($this->sentRow($data)['visible']);
+    }
+
+    #[Test]
+    public function deleting_the_discussion_releases_its_hashes(): void
+    {
+        $this->tracker->describeOn = true;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $postId = $this->firstPostId($data);
+
+        $response = $this->send($this->request('DELETE', '/api/discussions/' . $data['id'], ['authenticatedAs' => 1]));
+        $this->assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+
+        $this->assertSame([['discussion_id' => (int) $data['id'], 'post_id' => $postId, 'visible' => false, 'gone' => true, 'hashes' => [self::HASH]]], $this->lastDescribed());
+        $this->assertNull($this->sentRow($data));
+        $this->assertNull($this->database()->table(TrackerQueue::TABLE)->where('discussion_id', $data['id'])->first());
+    }
+
+    #[Test]
+    public function deleting_a_discussion_described_before_this_version_still_releases_its_hashes(): void
+    {
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->describeOn = true;
+        $this->assertNull($this->sentRow($data));
+
+        $response = $this->send($this->request('DELETE', '/api/discussions/' . $data['id'], ['authenticatedAs' => 1]));
+        $this->assertSame(204, $response->getStatusCode(), (string) $response->getBody());
+
+        $this->assertCount(1, $this->tracker->described);
+        $this->assertTrue($this->lastDescribed()[0]['gone']);
+        $this->assertSame([self::HASH], $this->lastDescribed()[0]['hashes']);
+    }
+
+    #[Test]
+    public function a_hash_edited_out_of_the_first_post_is_released(): void
+    {
+        $this->tracker->describeOn = true;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH . "\nmagnet:?xt=urn:btih:" . self::OTHER_HASH);
+        $postId = $this->firstPostId($data);
+
+        $this->patch('posts', $postId, ['content' => 'Only one now: magnet:?xt=urn:btih:' . self::HASH]);
+
+        $topics = $this->lastDescribed();
+        $this->assertCount(2, $topics);
+        $this->assertSame([self::HASH], $topics[0]['hashes']);
+        $this->assertSame('Only one now: magnet:?xt=urn:btih:' . self::HASH, $topics[0]['content']);
+        $this->assertSame(['discussion_id' => (int) $data['id'], 'post_id' => $postId, 'visible' => false, 'gone' => true, 'hashes' => [self::OTHER_HASH]], $topics[1]);
+        $this->assertSame([self::HASH], $this->sentRow($data)['hashes']);
+    }
+
+    #[Test]
+    public function moving_a_topic_to_a_tag_guests_cannot_see_withdraws_it(): void
+    {
+        $this->prepareDatabase(['tags' => [['id' => 7, 'name' => 'Staff', 'slug' => 'staff', 'position' => 0, 'is_restricted' => 1]]]);
+        $this->tracker->describeOn = true;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+
+        $this->patch('discussions', (int) $data['id'], [], ['tags' => ['data' => [['type' => 'tags', 'id' => '7']]]]);
+
+        $this->assertSame(false, $this->lastDescribed()[0]['visible']);
+        $this->assertFalse($this->sentRow($data)['visible']);
+
+        $this->patch('discussions', (int) $data['id'], [], ['tags' => ['data' => []]]);
+
+        $this->assertArrayNotHasKey('visible', $this->lastDescribed()[0]);
+        $this->assertTrue($this->sentRow($data)['visible']);
+    }
+
+    #[Test]
+    public function a_reply_a_guest_cannot_see_registers_nothing(): void
+    {
+        $discussion = $this->startDiscussion('No magnet here.');
+        $this->patch('discussions', (int) $discussion['id'], ['isHidden' => true]);
+        $this->tracker->calls = [];
+
+        $this->reply($discussion, 'magnet:?xt=urn:btih:' . self::HASH);
+
+        $this->assertCount(0, $this->tracker->calls);
+    }
+
+    #[Test]
+    public function an_older_tracker_is_never_sent_a_withdrawal(): void
+    {
+        $this->tracker->describeOn = true;
+        $this->tracker->withdraw = false;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+
+        $this->patch('discussions', (int) $data['id'], ['isHidden' => true]);
+
+        $this->assertCount(1, $this->tracker->described);
+        $this->assertTrue($this->sentRow($data)['visible']);
+    }
+
+    #[Test]
+    public function the_description_pass_withdraws_topics_a_guest_can_no_longer_see(): void
+    {
+        $this->tracker->describeOn = true;
+        $gone = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $kept = $this->startDiscussion('magnet:?xt=urn:btih:' . self::THIRD_HASH);
+        $this->database()->table('discussions')->where('id', $gone['id'])->update(['is_private' => true]);
+        $this->tracker->calls = [];
+        $this->tracker->described = [];
+
+        [, $result] = $this->describeAll();
+
+        $this->assertTrue($result['done']);
+        $this->assertSame(1, $result['processed']);
+        $this->assertSame(1, $result['describe']['published']);
+        $this->assertSame(1, $result['describe']['withdrawn']);
+        $topics = $this->lastDescribed();
+        $this->assertSame(['discussion_id' => (int) $gone['id'], 'post_id' => $this->firstPostId($gone), 'visible' => false, 'hashes' => [self::HASH]], $topics[0]);
+        $this->assertSame((int) $kept['id'], $topics[1]['discussion_id']);
+        $this->assertFalse($this->sentRow($gone)['visible']);
+
+        [, $again] = $this->describeAll();
+
+        $this->assertSame(0, $again['describe']['withdrawn'], 'withdrawn once');
+        $this->assertCount(2, $this->tracker->described);
+        $this->assertCount(1, $this->lastDescribed());
+    }
+
+    #[Test]
+    public function the_description_pass_releases_topics_deleted_behind_its_back(): void
+    {
+        $this->tracker->describeOn = true;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $postId = $this->firstPostId($data);
+        $this->database()->table('posts')->where('discussion_id', $data['id'])->delete();
+        $this->database()->table('discussions')->where('id', $data['id'])->delete();
+
+        [, $result] = $this->describeAll();
+
+        $this->assertTrue($result['done']);
+        $this->assertSame(1, $result['describe']['withdrawn']);
+        $this->assertSame([['discussion_id' => (int) $data['id'], 'post_id' => $postId, 'visible' => false, 'gone' => true, 'hashes' => [self::HASH]]], $this->lastDescribed());
+        $this->assertNull($this->sentRow($data));
+    }
+
+    private static function magnets(int $from, int $count): string
+    {
+        $lines = [];
+        for ($i = $from; $i < $from + $count; $i++) {
+            $lines[] = 'magnet:?xt=urn:btih:' . str_pad(dechex($i), 40, '0', STR_PAD_LEFT);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    #[Test]
+    public function the_scan_never_splits_a_post_at_the_hash_cap(): void
+    {
+        $first = $this->startDiscussion(self::magnets(1, 300));
+        $second = $this->startDiscussion(self::magnets(1000, 300));
+        $this->tracker->calls = [];
+
+        $batch = $this->scan();
+
+        $this->assertFalse($batch['done']);
+        $this->assertSame(1, $batch['processed']);
+        $this->assertSame(300, $batch['sent']);
+        $this->assertSame($this->firstPostId($first), $batch['next_cursor']);
+
+        $next = $this->scan($batch['next_cursor']);
+
+        $this->assertTrue($next['done']);
+        $this->assertSame(300, $next['sent']);
+        $this->assertSame($this->firstPostId($second), $next['next_cursor']);
+    }
+
+    #[Test]
+    public function a_post_with_more_hashes_than_one_call_takes_is_sent_in_several_calls(): void
+    {
+        $this->startDiscussion(self::magnets(1, 600));
+
+        $this->assertSame([500, 100], array_map(fn ($call) => count($call['items']), $this->tracker->calls));
+    }
+
+    #[Test]
+    public function the_status_lists_the_problems_with_links_and_the_counters(): void
+    {
+        $this->tracker->describeOn = true;
+        $this->tracker->answers = [self::HASH => 'too_long'];
+        $long = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->answers = [];
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::THIRD_HASH);
+        $this->tracker->describeError = 'http_503';
+        $failing = $this->startDiscussion('magnet:?xt=urn:btih:' . self::OTHER_HASH);
+
+        $response = $this->send($this->request('GET', '/api/tryhackx/homepage/whitelist/status', ['authenticatedAs' => 1]));
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $status = json_decode((string) $response->getBody(), true);
+
+        $this->assertSame(['published' => 1, 'waiting' => 0, 'proposed' => 0, 'unchanged' => 0, 'withdrawn' => 0, 'error' => 1], $status['topics']);
+        $this->assertSame(1, $status['queue']['pending']);
+        $this->assertSame(1, $status['queue']['failing']);
+        $this->assertTrue($status['describe']['enabled']);
+        $problems = array_column($status['problems'], null, 'discussion_id');
+        $this->assertSame('too_long', $problems[(int) $long['id']]['status']);
+        $this->assertSame('failed', $problems[(int) $failing['id']]['status']);
+        $this->assertSame('describe: http_503', $problems[(int) $failing['id']]['detail']);
+        $this->assertSame('Release', $problems[(int) $failing['id']]['title']);
+        $this->assertMatchesRegularExpression('#/d/' . $failing['id'] . '-release$#', $problems[(int) $failing['id']]['url']);
+
+        $guest = $this->send($this->request('GET', '/api/tryhackx/homepage/whitelist/status'));
+        $this->assertSame(403, $guest->getStatusCode());
+    }
 }
 
 /** Records submits (and the transaction level at that moment) instead of calling a tracker. */
@@ -532,10 +943,38 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     public array $described = [];
     public array $pings = [];
     public array $pingJson = ['ok' => true];
+    public ?bool $withdraw = true;
+    public array $answers = [];
 
     public function __construct()
     {
         // No parent constructor: every method the sync path uses is overridden.
+    }
+
+    public function describeLimits(): array
+    {
+        return ['chars' => null, 'bytes' => DescriptionPayload::MAX_BYTES, 'topics' => DescriptionPayload::MAX_TOPICS,
+            'hashes' => DescriptionPayload::MAX_HASHES, 'withdraw' => $this->withdraw, 'at' => time()];
+    }
+
+    public function limitsStale(): bool
+    {
+        return false;
+    }
+
+    public function paceDelay(int $calls = 1): int
+    {
+        return 0;
+    }
+
+    public function describePausedUntil(): ?int
+    {
+        return null;
+    }
+
+    public function cooldown(): ?array
+    {
+        return null;
     }
 
     public function isEnabled(): bool
@@ -591,9 +1030,9 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
         return false;
     }
 
-    public function ping(?array $override = null, int $timeout = 6): array
+    public function ping(?array $override = null, int $timeout = 6, ?bool $consent = null): array
     {
-        $this->pings[] = ['override' => $override];
+        $this->pings[] = ['override' => $override, 'consent' => $consent];
 
         return ['ok' => true, 'status' => 200, 'json' => $this->pingJson, 'error' => null, 'elapsed_ms' => 1];
     }
@@ -607,9 +1046,21 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     {
         $this->described[] = ['topics' => $topics, 'max_chars' => $maxChars, 'level' => $this->db ? $this->db->transactionLevel() : -1, 'submits' => count($this->calls)];
         if ($this->describeError !== null) {
-            return ['ok' => false, 'status' => $this->describeError === 'describe_off' ? 200 : 503, 'json' => null, 'error' => $this->describeError, 'elapsed_ms' => 1];
+            $status = ['describe_off' => 200, 'http_429' => 429][$this->describeError] ?? 503;
+
+            return ['ok' => false, 'status' => $status, 'json' => null, 'error' => $this->describeError, 'elapsed_ms' => 1] + ($status === 429 ? ['retry_after' => 30] : []);
         }
 
-        return ['ok' => true, 'status' => 200, 'json' => ['ok' => true, 'summary' => ['created' => count($topics)]], 'error' => null, 'elapsed_ms' => 1];
+        $results = [];
+        $summary = [];
+        foreach ($topics as $i => $topic) {
+            foreach ($topic['hashes'] as $hash) {
+                $status = $this->answers[$hash] ?? (isset($topic['visible']) ? (empty($topic['gone']) ? 'withdrawn' : 'released') : 'created');
+                $results[] = ['topic' => $i, 'discussion_id' => $topic['discussion_id'], 'hash' => $hash, 'status' => $status, 'detail' => null];
+                $summary[$status] = ($summary[$status] ?? 0) + 1;
+            }
+        }
+
+        return ['ok' => true, 'status' => 200, 'json' => ['ok' => true, 'summary' => $summary, 'results' => $results], 'error' => null, 'elapsed_ms' => 1];
     }
 }
