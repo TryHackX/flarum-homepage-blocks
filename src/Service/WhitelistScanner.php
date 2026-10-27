@@ -512,7 +512,26 @@ final class WhitelistScanner
             $maxChars,
             $hashes,
             $maxHashes,
+            !empty($this->client->describeLimits()['tags']) ? $this->discussionTags($post) : null,
         ));
+    }
+
+    private function discussionTags($post): ?array
+    {
+        try {
+            $discussion = $post->discussion;
+            if (!$discussion) return null;
+            $tags = $discussion->tags()->whereVisibleTo($this->viewer())->with('parent')->get();
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return DescriptionPayload::tagList($tags->map(fn ($tag) => [
+            'slug' => (string) $tag->slug,
+            'name' => (string) $tag->name,
+            'color' => $tag->color,
+            'position' => $tag->position,
+            'parent' => $tag->parent?->slug,
+        ])->all());
     }
 
     private function topicUrl($post): ?string

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-10-27
+
+> **A discussion's tags go to the tracker with its description** (tryhackx-tracker 1.85.3).
+> **PHP only**, no migration, no admin or locale change.
+
+### Added
+- Each described topic carries the discussion's tags (slug, name, colour, parent tag) — only the tags the chosen
+  audience can see, primary tags first, at most 30. They are sent only to a tracker whose ping says `describe_tags`;
+  an older tracker gets exactly what it got before.
+- Retagging a discussion already sends it again (DiscussionWasTagged), so the tracker follows the forum's tags.
+
+### Changed
+- Limits remembered by an older version lack the tags flag, so the first sync after the update pings the tracker
+  again instead of waiting up to six hours.
+
 ## [2.12.3] - 2026-10-27
 
 > **"Skipped" was hiding "turned down"** — and bringing them back is one press (tryhackx-tracker 1.83.1).

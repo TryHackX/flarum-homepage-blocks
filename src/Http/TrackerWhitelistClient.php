@@ -266,14 +266,15 @@ class TrackerWhitelistClient
             'topics' => isset($v['topics']) ? (int) $v['topics'] : DescriptionPayload::MAX_TOPICS,
             'hashes' => isset($v['hashes']) ? (int) $v['hashes'] : DescriptionPayload::MAX_HASHES,
             'withdraw' => isset($v['withdraw']) ? (bool) $v['withdraw'] : null,
+            'tags' => isset($v['tags']) ? (bool) $v['tags'] : null,
             'at' => isset($v['at']) ? (int) $v['at'] : null,
         ];
     }
 
     public function limitsStale(): bool
     {
-        $at = $this->describeLimits()['at'];
-        return $at === null || time() - $at > self::LIMITS_FRESH;
+        $limits = $this->describeLimits();
+        return $limits['at'] === null || $limits['tags'] === null || time() - $limits['at'] > self::LIMITS_FRESH;
     }
 
     public static function limitsFrom(array $json, bool $ping, array $current): array
@@ -282,7 +283,7 @@ class TrackerWhitelistClient
             ? ['chars' => 'describe_max_chars', 'bytes' => 'describe_max_bytes', 'topics' => 'describe_max_topics', 'hashes' => 'describe_max_hashes']
             : ['bytes' => 'max_bytes', 'topics' => 'max_topics', 'hashes' => 'max_hashes'];
         $ranges = ['chars' => [1, 16000000], 'bytes' => [65536, 67108864], 'topics' => [1, 1000], 'hashes' => [1, 1000]];
-        $out = array_intersect_key($current, array_flip(['chars', 'bytes', 'topics', 'hashes', 'withdraw', 'at']));
+        $out = array_intersect_key($current, array_flip(['chars', 'bytes', 'topics', 'hashes', 'withdraw', 'tags', 'at']));
         foreach ($fields as $key => $field) {
             if (isset($json[$field]) && is_numeric($json[$field])) {
                 $out[$key] = max($ranges[$key][0], min($ranges[$key][1], (int) $json[$field]));
@@ -290,6 +291,7 @@ class TrackerWhitelistClient
         }
         if ($ping) {
             $out['withdraw'] = isset($json['describe_max_hashes']);
+            $out['tags'] = !empty($json['describe_tags']);
             $out['at'] = time();
         } elseif (is_array($json['summary'] ?? null) && array_key_exists('withdrawn', $json['summary'])) {
             $out['withdraw'] = true;

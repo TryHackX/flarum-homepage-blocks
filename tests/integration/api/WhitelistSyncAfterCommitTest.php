@@ -847,6 +847,42 @@ class WhitelistSyncAfterCommitTest extends TestCase
     }
 
     #[Test]
+    public function a_described_topic_carries_its_tags_when_the_tracker_takes_them(): void
+    {
+        $this->prepareDatabase(['tags' => [
+            ['id' => 8, 'name' => 'Dramatyczne', 'slug' => 'dramatyczne', 'position' => 1, 'color' => '#34495e'],
+            ['id' => 9, 'name' => 'Full HD (1080p)', 'slug' => 'full-hd-1080p', 'position' => null],
+        ]]);
+        $this->tracker->describeOn = true;
+        $this->tracker->tags = true;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+
+        $this->patch('discussions', (int) $data['id'], [], ['tags' => ['data' => [['type' => 'tags', 'id' => '9'], ['type' => 'tags', 'id' => '8']]]]);
+
+        $this->assertSame([
+            ['slug' => 'dramatyczne', 'name' => 'Dramatyczne', 'color' => '#34495e', 'parent' => null],
+            ['slug' => 'full-hd-1080p', 'name' => 'Full HD (1080p)', 'color' => null, 'parent' => null],
+        ], $this->lastDescribed()[0]['tags']);
+
+        $this->patch('discussions', (int) $data['id'], [], ['tags' => ['data' => []]]);
+
+        $this->assertSame([], $this->lastDescribed()[0]['tags']);
+    }
+
+    #[Test]
+    public function a_tracker_that_does_not_take_tags_is_sent_none(): void
+    {
+        $this->prepareDatabase(['tags' => [['id' => 8, 'name' => 'Dramatyczne', 'slug' => 'dramatyczne', 'position' => 1]]]);
+        $this->tracker->describeOn = true;
+        $this->tracker->tags = false;
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+
+        $this->patch('discussions', (int) $data['id'], [], ['tags' => ['data' => [['type' => 'tags', 'id' => '8']]]]);
+
+        $this->assertArrayNotHasKey('tags', $this->lastDescribed()[0]);
+    }
+
+    #[Test]
     public function a_reply_a_guest_cannot_see_registers_nothing(): void
     {
         $discussion = $this->startDiscussion('No magnet here.');
@@ -1001,6 +1037,7 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     public array $pings = [];
     public array $pingJson = ['ok' => true];
     public ?bool $withdraw = true;
+    public ?bool $tags = null;
     public array $answers = [];
 
     public function __construct()
@@ -1011,7 +1048,7 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     public function describeLimits(): array
     {
         return ['chars' => null, 'bytes' => DescriptionPayload::MAX_BYTES, 'topics' => DescriptionPayload::MAX_TOPICS,
-            'hashes' => DescriptionPayload::MAX_HASHES, 'withdraw' => $this->withdraw, 'at' => time()];
+            'hashes' => DescriptionPayload::MAX_HASHES, 'withdraw' => $this->withdraw, 'tags' => $this->tags, 'at' => time()];
     }
 
     public function limitsStale(): bool

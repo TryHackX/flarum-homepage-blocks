@@ -181,13 +181,39 @@ class TrackerWhitelistClientTest extends TestCase
         ]);
 
         $this->assertSame(['chars' => null, 'bytes' => DescriptionPayload::MAX_BYTES, 'topics' => DescriptionPayload::MAX_TOPICS,
-            'hashes' => DescriptionPayload::MAX_HASHES, 'withdraw' => null, 'at' => null], $client->describeLimits());
+            'hashes' => DescriptionPayload::MAX_HASHES, 'withdraw' => null, 'tags' => null, 'at' => null], $client->describeLimits());
         $this->assertTrue($client->limitsStale());
 
         $client->ping();
 
         $limits = $client->describeLimits();
         $this->assertSame([1000000, 4194304, 25, 30, true], [$limits['chars'], $limits['bytes'], $limits['topics'], $limits['hashes'], $limits['withdraw']]);
+        $this->assertFalse($client->limitsStale());
+    }
+
+    #[Test]
+    public function the_ping_says_whether_the_tracker_takes_tags_and_a_describe_answer_keeps_it(): void
+    {
+        $ping = TrackerWhitelistClient::limitsFrom(['ok' => true, 'describe_max_hashes' => 20, 'describe_tags' => true], true, []);
+        $this->assertTrue($ping['tags']);
+        $kept = TrackerWhitelistClient::limitsFrom(['ok' => true, 'max_topics' => 10, 'summary' => ['created' => 1]], false, $ping);
+        $this->assertTrue($kept['tags']);
+        $older = TrackerWhitelistClient::limitsFrom(['ok' => true, 'describe_max_hashes' => 20], true, $ping);
+        $this->assertFalse($older['tags']);
+    }
+
+    #[Test]
+    public function limits_written_before_tags_existed_ask_for_a_new_ping(): void
+    {
+        $store = $this->store();
+        $client = $this->client(['whitelist_sync_enabled' => '1'], $store, ['ok' => true, 'describe_max_hashes' => 20, 'describe_tags' => true]);
+        $store->write('whitelist:limits', ['topics' => 25, 'hashes' => 20, 'withdraw' => true, 'at' => time()], 3600);
+        $this->assertNull($client->describeLimits()['tags']);
+        $this->assertTrue($client->limitsStale());
+
+        $client->ping();
+
+        $this->assertTrue($client->describeLimits()['tags']);
         $this->assertFalse($client->limitsStale());
     }
 

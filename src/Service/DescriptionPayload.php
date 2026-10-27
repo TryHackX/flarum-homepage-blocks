@@ -10,6 +10,7 @@ final class DescriptionPayload
     public const MAX_TOPICS = 25;
     public const MAX_BYTES = 3500000;
     public const MAX_URL = 500;
+    public const MAX_TAGS = 30;
     public const COUNTERS = [
         'published' => ['created', 'updated', 'replaced'],
         'waiting' => ['queued'],
@@ -28,7 +29,7 @@ final class DescriptionPayload
     public const STATES = ['published', 'waiting', 'proposed', 'unchanged', 'withdrawn', 'declined', 'error'];
     public const DECLINED = ['declined', 'removed'];
 
-    public static function topics(int $discussionId, int $postId, ?string $url, ?array $author, ?\DateTimeInterface $editedAt, ?string $content, int $maxChars, array $hashes, int $maxHashes = self::MAX_HASHES): array
+    public static function topics(int $discussionId, int $postId, ?string $url, ?array $author, ?\DateTimeInterface $editedAt, ?string $content, int $maxChars, array $hashes, int $maxHashes = self::MAX_HASHES, ?array $tags = null): array
     {
         $content = (string) $content;
         $chars = mb_strlen($content);
@@ -39,12 +40,29 @@ final class DescriptionPayload
         $topic['format'] = 'flarum';
         $topic['content'] = $chars > $maxChars ? null : $content;
         $topic['chars'] = $chars;
+        if ($tags !== null) $topic['tags'] = $tags;
 
         $out = [];
         foreach (array_chunk(array_values(array_unique($hashes)), max(1, $maxHashes)) as $chunk) {
             $out[] = $topic + ['hashes' => $chunk];
         }
         return $out;
+    }
+
+    public static function tagList(array $tags): array
+    {
+        $key = fn (array $t) => [($t['position'] ?? null) === null ? 1 : 0, (int) ($t['position'] ?? 0), mb_strtolower((string) ($t['name'] ?? ''))];
+        usort($tags, fn ($a, $b) => $key($a) <=> $key($b));
+        $out = [];
+        foreach ($tags as $t) {
+            $slug = trim((string) ($t['slug'] ?? ''));
+            if ($slug === '' || isset($out[$slug])) continue;
+            $color = trim((string) ($t['color'] ?? ''));
+            $parent = trim((string) ($t['parent'] ?? ''));
+            $out[$slug] = ['slug' => $slug, 'name' => (string) ($t['name'] ?? $slug), 'color' => $color !== '' ? $color : null, 'parent' => $parent !== '' ? $parent : null];
+            if (count($out) >= self::MAX_TAGS) break;
+        }
+        return array_values($out);
     }
 
     public static function hidden(int $discussionId, int $postId, array $hashes, bool $gone, int $maxHashes = self::MAX_HASHES): array

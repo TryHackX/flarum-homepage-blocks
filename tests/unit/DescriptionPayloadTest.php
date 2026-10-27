@@ -53,6 +53,40 @@ class DescriptionPayloadTest extends TestCase
     }
 
     #[Test]
+    public function a_topic_carries_the_discussion_tags_only_when_the_tracker_takes_them(): void
+    {
+        $tags = [['slug' => 'full-hd-1080p', 'name' => 'Full HD (1080p)', 'color' => null, 'parent' => null]];
+        $without = DescriptionPayload::topics(1, 1, null, null, null, 'x', self::LIMIT, [self::HASH])[0];
+        $with = DescriptionPayload::topics(1, 1, null, null, null, 'x', self::LIMIT, [self::HASH], DescriptionPayload::MAX_HASHES, $tags)[0];
+        $none = DescriptionPayload::topics(1, 1, null, null, null, 'x', self::LIMIT, [self::HASH], DescriptionPayload::MAX_HASHES, [])[0];
+        $this->assertArrayNotHasKey('tags', $without);
+        $this->assertSame($tags, $with['tags']);
+        $this->assertSame([], $none['tags']);
+        $this->assertNotSame(DescriptionPayload::fingerprint([$without]), DescriptionPayload::fingerprint([$with]));
+        $this->assertNotSame(DescriptionPayload::fingerprint([$with]), DescriptionPayload::fingerprint([$none]));
+    }
+
+    #[Test]
+    public function the_tag_list_puts_primary_tags_first_once_each_without_empty_colours(): void
+    {
+        $list = DescriptionPayload::tagList([
+            ['slug' => 'pl', 'name' => 'PL', 'color' => '', 'position' => null, 'parent' => null],
+            ['slug' => 'dramatyczne', 'name' => 'Dramatyczne', 'color' => '#34495e', 'position' => 8, 'parent' => null],
+            ['slug' => 'akcji', 'name' => 'Akcji', 'color' => '#e74c3c', 'position' => 1, 'parent' => null],
+            ['slug' => 'bluray', 'name' => 'BluRay', 'color' => null, 'position' => null, 'parent' => 'zrodlo'],
+            ['slug' => 'pl', 'name' => 'PL again', 'color' => null, 'position' => null, 'parent' => null],
+            ['slug' => '', 'name' => 'Nothing'],
+        ]);
+        $this->assertSame([
+            ['slug' => 'akcji', 'name' => 'Akcji', 'color' => '#e74c3c', 'parent' => null],
+            ['slug' => 'dramatyczne', 'name' => 'Dramatyczne', 'color' => '#34495e', 'parent' => null],
+            ['slug' => 'bluray', 'name' => 'BluRay', 'color' => null, 'parent' => 'zrodlo'],
+            ['slug' => 'pl', 'name' => 'PL', 'color' => null, 'parent' => null],
+        ], $list);
+        $this->assertCount(DescriptionPayload::MAX_TAGS, DescriptionPayload::tagList(array_map(fn ($i) => ['slug' => 't' . $i, 'name' => 'T' . $i], range(1, 40))));
+    }
+
+    #[Test]
     public function a_deleted_author_is_null_and_an_overlong_url_is_left_out(): void
     {
         $topic = DescriptionPayload::topics(1, 1, 'https://forum.example.org/d/1-' . str_repeat('a', 480), null, null, 'x', self::LIMIT, [self::HASH])[0];
