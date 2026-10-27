@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.3] - 2026-10-27
+
+> **"Skipped" was hiding "turned down"** — and bringing them back is one press (tryhackx-tracker 1.83.1).
+> **PHP + admin frontend + locales**, no migration.
+
+### Changed
+- Send / refresh all counts the topics the tracker's moderators turned down or deleted as "turned down on the
+  tracker", apart from the ones really skipped (not registered, another topic's, banned, older than what the tracker
+  has).
+- Next to "turned down on the tracker N" in the status: a button that sends those topics again at once with
+  "Also bring back what the tracker turned down or deleted" on.
+
 ## [2.12.2] - 2026-10-27
 
 > **A text the tracker turned down is not an error** — and it can be brought back (tryhackx-tracker 1.82.1).

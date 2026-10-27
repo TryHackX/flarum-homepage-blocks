@@ -162,13 +162,13 @@ class DescriptionPayloadTest extends TestCase
     public function counters_split_the_statuses_of_a_summary(): void
     {
         $summary = ['created' => 1, 'queued' => 2, 'updated' => 3, 'replaced' => 4, 'proposed' => 5, 'kept' => 6,
-            'unchanged' => 7, 'too_long' => 8, 'invalid' => 9, 'skipped' => 10, 'withdrawn' => 11, 'released' => 12, 'error' => 13, 'too_big' => 14];
+            'unchanged' => 7, 'too_long' => 8, 'invalid' => 9, 'declined' => 15, 'skipped' => 10, 'withdrawn' => 11, 'released' => 12, 'error' => 13, 'too_big' => 14];
 
         $once = DescriptionPayload::tally($summary);
         $twice = DescriptionPayload::tally($summary, $once);
 
         $this->assertSame(['published' => 8, 'waiting' => 2, 'proposed' => 5, 'unchanged' => 7, 'kept' => 6, 'withdrawn' => 23,
-            'too_long' => 22, 'invalid' => 9, 'skipped' => 10, 'errors' => 13], $once);
+            'too_long' => 22, 'invalid' => 9, 'declined' => 15, 'skipped' => 10, 'errors' => 13], $once);
         $this->assertSame(16, $twice['published']);
         $this->assertSame(46, $twice['withdrawn']);
         $this->assertSame(array_fill_keys(array_keys(DescriptionPayload::COUNTERS), 0), DescriptionPayload::tally([]));

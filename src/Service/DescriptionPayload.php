@@ -19,6 +19,7 @@ final class DescriptionPayload
         'withdrawn' => ['withdrawn', 'released'],
         'too_long' => ['too_long', 'too_big'],
         'invalid' => ['invalid'],
+        'declined' => ['declined'],
         'skipped' => ['skipped'],
         'errors' => ['error'],
     ];

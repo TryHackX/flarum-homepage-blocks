@@ -17,7 +17,7 @@ function sectionHeader(title) {
     };
 }
 
-const DESCRIBE_COUNTERS = ['published', 'waiting', 'proposed', 'unchanged', 'kept', 'withdrawn', 'too_long', 'invalid', 'skipped', 'errors'];
+const DESCRIBE_COUNTERS = ['published', 'waiting', 'proposed', 'unchanged', 'kept', 'withdrawn', 'too_long', 'invalid', 'declined', 'skipped', 'errors'];
 const PROBLEMS = ['too_long', 'too_big', 'invalid', 'error', 'failed', 'not_registered', 'registered_elsewhere', 'banned', 'other_topic', 'removed', 'declined'];
 
 function sleep(seconds) {
@@ -77,7 +77,7 @@ export default function registerWhitelistSettings() {
     }
 
     function describeLine(d) {
-        return t('scan_progress_describe', { published: d.published || 0, waiting: d.waiting || 0, proposed: d.proposed || 0, unchanged: d.unchanged || 0, kept: d.kept || 0, withdrawn: d.withdrawn || 0, tooLong: d.too_long || 0, invalid: d.invalid || 0, skipped: d.skipped || 0, errors: d.errors || 0 });
+        return t('scan_progress_describe', { published: d.published || 0, waiting: d.waiting || 0, proposed: d.proposed || 0, unchanged: d.unchanged || 0, kept: d.kept || 0, withdrawn: d.withdrawn || 0, tooLong: d.too_long || 0, invalid: d.invalid || 0, declined: d.declined || 0, skipped: d.skipped || 0, errors: d.errors || 0 });
     }
 
     function problemText(p) {
@@ -114,6 +114,12 @@ export default function registerWhitelistSettings() {
             !x ? m('div', { className: 'helpText' }, st.statusBusy ? t('status_loading') : '') : m('div', { className: 'HomepageBlocks-progress' }, [
                 x.describe && x.describe.enabled ? m('div', { className: 'HomepageBlocks-progressText' }, t('status_topics', { published: count(x.topics.published), waiting: count(x.topics.waiting), proposed: count(x.topics.proposed), unchanged: count(x.topics.unchanged), withdrawn: count(x.topics.withdrawn), declined: count(x.topics.declined || 0), errors: count(x.topics.error) })) : null,
                 x.describe && x.describe.enabled && x.topics.declined ? m('div', { className: 'helpText' }, t('status_declined_help', { count: count(x.topics.declined) })) : null,
+                x.describe && x.describe.enabled && x.topics.declined ? m('div', { className: 'HomepageBlocks-whitelistActions' }, [
+                    m('button', { type: 'button', className: 'Button Button--primary', disabled: !describeSaved() || st.describeAll.running || st.scan.running,
+                                  onclick: () => { st.describeAll.restore = true; runDescribeAll(false); } }, [
+                        m('i', { className: 'fas fa-undo Button-icon icon' }), ' ', t('status_bring_back', { count: count(x.topics.declined) }),
+                    ]),
+                ]) : null,
                 x.describe && x.describe.paused_until ? m('div', { className: 'HomepageBlocks-warn' }, t('status_paused', { time: when(x.describe.paused_until) })) : null,
                 x.describe && x.describe.enabled && x.describe.withdraw === false ? m('div', { className: 'HomepageBlocks-warn' }, t('status_no_withdraw')) : null,
                 m('div', { className: 'HomepageBlocks-progressText' }, x.queue.pending ? t('status_queue', { pending: count(x.queue.pending), failing: count(x.queue.failing), next: when(x.queue.next_at) }) : t('status_queue_empty')),
