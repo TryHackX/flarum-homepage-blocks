@@ -390,6 +390,19 @@ export default function registerWhitelistSettings() {
                     ]),
 
                     m('div', { className: 'HomepageBlocks-whitelistField' }, [
+                        m('label', { className: 'label', for: 'hb-whitelist-audience' }, t('audience')),
+                        m('select', {
+                            id: 'hb-whitelist-audience', className: 'FormControl HomepageBlocks-whitelistAudience', disabled: dis,
+                            value: this.setting(S + '.whitelist_audience')() === 'members' ? 'members' : 'guests',
+                            onchange: (e) => this.setting(S + '.whitelist_audience')(e.target.value),
+                        }, [
+                            m('option', { value: 'guests' }, t('audience_guests')),
+                            m('option', { value: 'members' }, t('audience_members')),
+                        ]),
+                        m('div', { className: 'helpText' }, t('audience_help')),
+                    ]),
+
+                    m('div', { className: 'HomepageBlocks-whitelistField' }, [
                         m('label', { className: 'checkbox' }, [
                             m('input', { type: 'checkbox', className: 'HomepageBlocks-whitelistImageCopy', disabled: dis, tabindex: dis ? -1 : 0, checked: settingIsTruthy(this.setting(S + '.whitelist_image_copy')()), onchange: (e) => this.setting(S + '.whitelist_image_copy')(e.target.checked ? '1' : '0') }),
                             ' ', t('image_copy'),

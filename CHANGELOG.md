@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.1] - 2026-10-27
+
+> **Topics for members** — the sync can treat as public the topics any signed-in member can see,
+> not only the ones a guest can see (tryhackx-tracker 1.82.0). **PHP + admin frontend + locales**,
+> no migration.
+
+### Added
+- **Send the topics visible to: Guests (default) / Members** in the whitelist sync settings. With
+  Members, magnets and topic descriptions are taken from the posts a signed-in member with a
+  confirmed email can see — checked by Flarum itself, with a member that belongs to no group but
+  Members — and every topic is sent with `"audience": "members"`, so the tracker shows those
+  descriptions to signed-in people only. With Guests nothing changes, and topics say
+  `"audience": "guests"`. After a change, Send / refresh all topic descriptions sends the topics
+  that became visible and withdraws those that no longer are.
+
 ## [2.12.0] - 2026-10-27
 
 > **A topic that disappears takes its description along, and nothing is lost while the tracker is

@@ -6,6 +6,8 @@ use Flarum\Discussion\Discussion;
 use Flarum\Http\UrlGenerator;
 use Flarum\Post\CommentPost;
 use Flarum\User\Guest;
+use Flarum\User\User;
+use Illuminate\Database\Eloquent\Collection;
 use Psr\Log\LoggerInterface;
 use TryHackX\HomepageBlocks\Api\FieldLengthModifier;
 use TryHackX\HomepageBlocks\Http\TrackerWhitelistClient;
@@ -30,7 +32,9 @@ final class WhitelistScanner
     /** Memoised configured tracker hosts (see eligible()); the scanner is a per-request singleton. @var ?string[] */
     private ?array $trackerHosts = null;
 
-    private ?Guest $guest = null;
+    private ?User $viewer = null;
+
+    private string $viewerAudience = '';
 
     public function __construct(
         private TrackerWhitelistClient $client,
@@ -42,14 +46,22 @@ final class WhitelistScanner
     ) {
     }
 
-    private function guest(): Guest
+    private function viewer(): User
     {
-        return $this->guest ??= new Guest();
+        $audience = $this->client->audience();
+        if ($this->viewer !== null && $this->viewerAudience === $audience) return $this->viewer;
+        $this->viewerAudience = $audience;
+        if ($audience !== 'members') return $this->viewer = new Guest();
+        $member = new User();
+        $member->id = 0;
+        $member->is_email_confirmed = true;
+        $member->setRelation('groups', new Collection());
+        return $this->viewer = $member;
     }
 
     private function visiblePosts()
     {
-        return CommentPost::query()->where('posts.type', 'comment')->whereVisibleTo($this->guest());
+        return CommentPost::query()->where('posts.type', 'comment')->whereVisibleTo($this->viewer());
     }
 
     private function baseQuery()
@@ -489,7 +501,8 @@ final class WhitelistScanner
     private function topicsFor($post, array $hashes, int $maxChars, int $maxHashes = DescriptionPayload::MAX_HASHES): array
     {
         $user = $post->user;
-        return DescriptionPayload::topics(
+        $audience = $this->client->audience();
+        return array_map(fn (array $topic) => $topic + ['audience' => $audience], DescriptionPayload::topics(
             (int) $post->discussion_id,
             (int) $post->id,
             $this->topicUrl($post),
@@ -499,7 +512,7 @@ final class WhitelistScanner
             $maxChars,
             $hashes,
             $maxHashes,
-        );
+        ));
     }
 
     private function topicUrl($post): ?string

@@ -141,7 +141,7 @@ class SyncPostMagnetsToTracker
             $prefix = TrackerWhitelistClient::S . '.whitelist_';
             $keys = array_keys($event->settings);
             if (array_intersect($keys, [$prefix . 'api_url', $prefix . 'api_key_id'])) $this->sync->forgetConsent();
-            if (!array_intersect($keys, [$prefix . 'image_copy', $prefix . 'sync_enabled', $prefix . 'api_url', $prefix . 'api_key_id'])) return;
+            if (!array_intersect($keys, [$prefix . 'image_copy', $prefix . 'sync_enabled', $prefix . 'api_url', $prefix . 'api_key_id', $prefix . 'audience'])) return;
             $this->sync->schedule();
         });
     }

@@ -95,6 +95,11 @@ class TrackerWhitelistClient
         return $this->isEnabled() && ($v === true || $v === '1' || $v === 1 || $v === 'true');
     }
 
+    public function audience(): string
+    {
+        return $this->settings->get(self::S . '.whitelist_audience') === 'members' ? 'members' : 'guests';
+    }
+
     public function copyImages(): bool
     {
         $v = $this->settings->get(self::S . '.whitelist_image_copy');

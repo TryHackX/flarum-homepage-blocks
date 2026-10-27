@@ -294,6 +294,44 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertCount(1, $this->tracker->described);
     }
 
+    #[Test]
+    public function the_members_audience_sends_a_topic_only_members_can_see(): void
+    {
+        $this->database()->table('tags')->insert(['id' => 90, 'name' => 'Members', 'slug' => 'members-only', 'is_restricted' => 1]);
+        $this->database()->table('group_permission')->insert(['group_id' => 3, 'permission' => 'tag90.viewForum']);
+        $data = $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->database()->table('discussion_tag')->insert(['discussion_id' => $data['id'], 'tag_id' => 90]);
+        $this->tracker->calls = [];
+        $this->tracker->describeOn = true;
+        $post = CommentPost::query()->findOrFail($this->firstPostId($data));
+        $events = $this->app()->getContainer()->make(Dispatcher::class);
+
+        $events->dispatch(new Posted($post));
+        $this->assertCount(0, $this->tracker->calls);
+        $this->assertCount(1, $this->tracker->described);
+        $this->assertFalse($this->tracker->described[0]['topics'][0]['visible']);
+        $this->assertArrayNotHasKey('content', $this->tracker->described[0]['topics'][0]);
+
+        $this->tracker->described = [];
+        $this->tracker->audienceValue = 'members';
+        $events->dispatch(new Posted($post));
+        $this->assertCount(1, $this->tracker->calls);
+        $this->assertCount(1, $this->tracker->described);
+        $topic = $this->tracker->described[0]['topics'][0];
+        $this->assertSame('members', $topic['audience']);
+        $this->assertSame([self::HASH], $topic['hashes']);
+        $this->assertSame('magnet:?xt=urn:btih:' . self::HASH, $topic['content']);
+    }
+
+    #[Test]
+    public function the_guests_audience_is_said_in_every_topic(): void
+    {
+        $this->tracker->describeOn = true;
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->assertCount(1, $this->tracker->described);
+        $this->assertSame('guests', $this->tracker->described[0]['topics'][0]['audience']);
+    }
+
     private function scan(int $cursor = 0): array
     {
         $response = $this->send($this->request('POST', '/api/tryhackx/homepage/whitelist/scan', [
@@ -939,6 +977,7 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     public ?string $submitError = null;
     public ?ConnectionInterface $db = null;
     public bool $describeOn = false;
+    public string $audienceValue = 'guests';
     public ?string $describeError = null;
     public array $described = [];
     public array $pings = [];
@@ -1018,6 +1057,11 @@ class RecordingWhitelistClient extends TrackerWhitelistClient
     public function describeEnabled(): bool
     {
         return $this->describeOn;
+    }
+
+    public function audience(): string
+    {
+        return $this->audienceValue;
     }
 
     public function describePaused(): bool
