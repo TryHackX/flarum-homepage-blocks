@@ -531,14 +531,32 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertSame([], $result['image_domains']);
     }
 
-    private function describeAll(int $cursor = 0): array
+    private function describeAll(int $cursor = 0, bool $restore = false): array
     {
         $response = $this->send($this->request('POST', '/api/tryhackx/homepage/whitelist/scan', [
             'authenticatedAs' => 1,
-            'json' => ['cursor' => $cursor, 'mode' => 'describe'],
+            'json' => ['cursor' => $cursor, 'mode' => 'describe'] + ($restore ? ['restore' => true] : []),
         ]));
 
         return [$response->getStatusCode(), json_decode((string) $response->getBody(), true)];
+    }
+
+    #[Test]
+    public function the_description_pass_asks_the_tracker_to_bring_back_only_when_told(): void
+    {
+        $this->startDiscussion('magnet:?xt=urn:btih:' . self::HASH);
+        $this->tracker->calls = [];
+        $this->tracker->describeOn = true;
+
+        [$status] = $this->describeAll();
+        $this->assertSame(200, $status);
+        $this->assertArrayNotHasKey('restore', $this->tracker->described[0]['topics'][0]);
+
+        $this->tracker->described = [];
+        [$status] = $this->describeAll(0, true);
+        $this->assertSame(200, $status);
+        $this->assertTrue($this->tracker->described[0]['topics'][0]['restore']);
+        $this->assertSame('guests', $this->tracker->described[0]['topics'][0]['audience']);
     }
 
     #[Test]
@@ -952,7 +970,7 @@ class WhitelistSyncAfterCommitTest extends TestCase
         $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         $status = json_decode((string) $response->getBody(), true);
 
-        $this->assertSame(['published' => 1, 'waiting' => 0, 'proposed' => 0, 'unchanged' => 0, 'withdrawn' => 0, 'error' => 1], $status['topics']);
+        $this->assertSame(['published' => 1, 'waiting' => 0, 'proposed' => 0, 'unchanged' => 0, 'withdrawn' => 0, 'declined' => 0, 'error' => 1], $status['topics']);
         $this->assertSame(1, $status['queue']['pending']);
         $this->assertSame(1, $status['queue']['failing']);
         $this->assertTrue($status['describe']['enabled']);

@@ -58,7 +58,8 @@ class WhitelistScanController implements RequestHandlerInterface
         }
         $this->store->write(self::RUNNING_KEY, ['until' => time() + 40], 60);
         try {
-            $result = $this->store->withLock('whitelist:scan', fn () => $describeAll ? $this->scanner->describeBatch($cursor, $batch) : $this->scanner->scanBatch($cursor, $batch, $dryRun), false, null);
+            $restore = $describeAll && !empty($body['restore']);
+            $result = $this->store->withLock('whitelist:scan', fn () => $describeAll ? $this->scanner->describeBatch($cursor, $batch, $restore) : $this->scanner->scanBatch($cursor, $batch, $dryRun), false, null);
             if ($result === null) {
                 return new JsonResponse(['error' => 'already_running'], 409);
             }

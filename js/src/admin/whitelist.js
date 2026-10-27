@@ -48,7 +48,7 @@ export default function registerWhitelistSettings() {
         statusError: false,
         statusAsked: false,
         scan: { running: false, cancel: false, cursor: 0, processed: 0, total: null, hashes: 0, skipped: 0, sent: 0, added: 0, exists: 0, banned: 0, invalid: 0, error: null, done: false, batches: 0, describe: null, describeOff: false, waiting: 0, queued: 0 },
-        describeAll: { running: false, cancel: false, cursor: 0, processed: 0, total: null, error: null, done: false, describe: null, describeOff: false, waiting: 0, queued: 0 },
+        describeAll: { running: false, cancel: false, cursor: 0, processed: 0, total: null, error: null, done: false, describe: null, describeOff: false, waiting: 0, queued: 0, restore: false },
     };
 
     async function loadStatus() {
@@ -112,7 +112,8 @@ export default function registerWhitelistSettings() {
             ]),
             st.statusError ? m('div', { className: 'HomepageBlocks-err' }, t('status_error')) : null,
             !x ? m('div', { className: 'helpText' }, st.statusBusy ? t('status_loading') : '') : m('div', { className: 'HomepageBlocks-progress' }, [
-                x.describe && x.describe.enabled ? m('div', { className: 'HomepageBlocks-progressText' }, t('status_topics', { published: count(x.topics.published), waiting: count(x.topics.waiting), proposed: count(x.topics.proposed), unchanged: count(x.topics.unchanged), withdrawn: count(x.topics.withdrawn), errors: count(x.topics.error) })) : null,
+                x.describe && x.describe.enabled ? m('div', { className: 'HomepageBlocks-progressText' }, t('status_topics', { published: count(x.topics.published), waiting: count(x.topics.waiting), proposed: count(x.topics.proposed), unchanged: count(x.topics.unchanged), withdrawn: count(x.topics.withdrawn), declined: count(x.topics.declined || 0), errors: count(x.topics.error) })) : null,
+                x.describe && x.describe.enabled && x.topics.declined ? m('div', { className: 'helpText' }, t('status_declined_help', { count: count(x.topics.declined) })) : null,
                 x.describe && x.describe.paused_until ? m('div', { className: 'HomepageBlocks-warn' }, t('status_paused', { time: when(x.describe.paused_until) })) : null,
                 x.describe && x.describe.enabled && x.describe.withdraw === false ? m('div', { className: 'HomepageBlocks-warn' }, t('status_no_withdraw')) : null,
                 m('div', { className: 'HomepageBlocks-progressText' }, x.queue.pending ? t('status_queue', { pending: count(x.queue.pending), failing: count(x.queue.failing), next: when(x.queue.next_at) }) : t('status_queue_empty')),
@@ -120,10 +121,12 @@ export default function registerWhitelistSettings() {
                 pending ? m('div', { className: 'HomepageBlocks-warn' }, t('status_' + pending)) : null,
                 x.problems.length ? [
                     m('div', { className: 'HomepageBlocks-progressText' }, t('status_problems')),
-                    m('ul', { className: 'HomepageBlocks-whitelistProblems' }, x.problems.map((p) => m('li', [
+                    m('ul', { className: 'HomepageBlocks-whitelistProblems' }, (st.problemsAll ? x.problems : x.problems.slice(0, 5)).map((p) => m('li', [
                         p.url ? m('a', { href: p.url, target: '_blank', rel: 'noopener noreferrer' }, p.title || ('#' + p.discussion_id)) : m('span', t('status_deleted_topic', { id: p.discussion_id })),
                         ' — ', problemText(p), ' · ', m('span', { className: 'helpText' }, when(p.at)),
                     ]))),
+                    x.problems.length > 5 ? m('button', { type: 'button', className: 'Button Button--link', onclick: () => { st.problemsAll = !st.problemsAll; } },
+                        st.problemsAll ? t('status_show_less') : t('status_show_all', { count: x.problems.length })) : null,
                 ] : m('div', { className: 'helpText' }, t('status_no_problems')),
             ]),
             m('div', { className: 'helpText' }, t('status_help')),
@@ -245,7 +248,7 @@ export default function registerWhitelistSettings() {
         while (!s.done && !s.cancel) {
             let res;
             try {
-                res = await app.request({ method: 'POST', url: apiUrl() + '/tryhackx/homepage/whitelist/scan', body: { cursor: s.cursor, mode: 'describe' }, errorHandler: () => {} });
+                res = await app.request({ method: 'POST', url: apiUrl() + '/tryhackx/homepage/whitelist/scan', body: { cursor: s.cursor, mode: 'describe', restore: !!s.restore }, errorHandler: () => {} });
             } catch (e) {
                 const wait = rateWait(e);
                 if (wait) {
@@ -428,6 +431,10 @@ export default function registerWhitelistSettings() {
                             ds.error ? m('div', { className: 'HomepageBlocks-err' }, ds.error) : null,
                             ds.cancel && !ds.running ? m('div', { className: 'HomepageBlocks-warn' }, t('scan_cancelled')) : null,
                         ]) : null,
+                        m('label', { className: 'checkbox HomepageBlocks-whitelistRestore' }, [
+                            m('input', { type: 'checkbox', disabled: dis || ds.running, checked: !!ds.restore, onchange: (e) => { ds.restore = e.target.checked; } }),
+                            ' ', t('describe_restore'),
+                        ]),
                         m('div', { className: 'helpText' }, t('describe_all_help')),
                     ]),
 

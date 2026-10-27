@@ -289,5 +289,9 @@ class DescriptionPayloadTest extends TestCase
         $this->assertSame(['withdrawn', 'withdrawn', null], DescriptionPayload::topicState([$r('withdrawn', true), $r('not_registered', true)]));
         $this->assertSame(['withdrawn', 'not_registered', null], DescriptionPayload::topicState([$r('not_registered', true)]));
         $this->assertSame(['error', 'invalid', $this->hash(1)], DescriptionPayload::topicState([$r('invalid', true)]));
+        $this->assertSame(['declined', 'declined', null], DescriptionPayload::topicState([$r('declined')]));
+        $this->assertSame(['declined', 'removed', null], DescriptionPayload::topicState([$r('removed'), $r('unchanged')]));
+        $this->assertSame(['error', 'error', 'x'], DescriptionPayload::topicState([$r('declined'), $r('error', false, 'x')]));
+        $this->assertContains('declined', DescriptionPayload::STATES);
     }
 }

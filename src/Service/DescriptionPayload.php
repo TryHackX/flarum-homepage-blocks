@@ -24,7 +24,8 @@ final class DescriptionPayload
     ];
     public const SKIPPED = ['not_registered', 'registered_elsewhere', 'banned', 'other_topic', 'removed', 'declined', 'stale'];
     public const FAILED = ['error', 'invalid', 'too_long', 'too_big'];
-    public const STATES = ['published', 'waiting', 'proposed', 'unchanged', 'withdrawn', 'error'];
+    public const STATES = ['published', 'waiting', 'proposed', 'unchanged', 'withdrawn', 'declined', 'error'];
+    public const DECLINED = ['declined', 'removed'];
 
     public static function topics(int $discussionId, int $postId, ?string $url, ?array $author, ?\DateTimeInterface $editedAt, ?string $content, int $maxChars, array $hashes, int $maxHashes = self::MAX_HASHES): array
     {
@@ -86,10 +87,15 @@ final class DescriptionPayload
     public static function topicState(array $results, ?string $previous = null): array
     {
         $problem = null;
+        $declined = null;
         $seen = [];
         foreach ($results as $r) {
             $status = (string) ($r['status'] ?? '');
             $seen[$status] = true;
+            if (empty($r['hidden']) && in_array($status, self::DECLINED, true)) {
+                $declined ??= $r;
+                continue;
+            }
             $bad = in_array($status, self::FAILED, true)
                 || (empty($r['hidden']) && $status !== 'stale' && in_array($status, self::SKIPPED, true));
             if ($bad && ($problem === null || ($status === 'error' && $problem['status'] !== 'error'))) $problem = $r;
@@ -98,6 +104,7 @@ final class DescriptionPayload
             $detail = trim((string) ($problem['detail'] ?? ''));
             return ['error', (string) $problem['status'], $detail !== '' ? $detail : ($problem['hash'] ?? null)];
         }
+        if ($declined !== null) return ['declined', (string) $declined['status'], null];
         if (isset($seen['proposed'])) return ['proposed', 'proposed', null];
         if (isset($seen['queued'])) return ['waiting', 'queued', null];
         foreach (self::COUNTERS['published'] as $status) {

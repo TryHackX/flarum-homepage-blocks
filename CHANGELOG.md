@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.2] - 2026-10-27
+
+> **A text the tracker turned down is not an error** — and it can be brought back (tryhackx-tracker 1.82.1).
+> **PHP + admin frontend + locales**, no migration.
+
+### Added
+- **"Also bring back what the tracker turned down or deleted"** beside Send / refresh all topic descriptions: the
+  topics are sent with `"restore": true`, and the tracker publishes them again or puts them in its queue, as set for
+  the key. Without the tick nothing changes.
+
+### Changed
+- A topic the tracker's moderators turned down or deleted counts as "turned down on the tracker", not as an error,
+  with a line that says what to do about it. The list of real errors shows five and opens the rest on request.
+
 ## [2.12.1] - 2026-10-27
 
 > **Topics for members** — the sync can treat as public the topics any signed-in member can see,

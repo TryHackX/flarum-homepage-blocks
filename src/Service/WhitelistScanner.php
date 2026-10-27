@@ -107,12 +107,12 @@ final class WhitelistScanner
         return $this->walk($cursor, $batch, $dryRun, false);
     }
 
-    public function describeBatch(int $cursor, int $batch = self::DESCRIBE_BATCH_POSTS): array
+    public function describeBatch(int $cursor, int $batch = self::DESCRIBE_BATCH_POSTS, bool $restore = false): array
     {
-        return $this->walk($cursor, $batch, false, true);
+        return $this->walk($cursor, $batch, false, true, $restore);
     }
 
-    private function walk(int $cursor, int $batch, bool $dryRun, bool $firstPostsOnly): array
+    private function walk(int $cursor, int $batch, bool $dryRun, bool $firstPostsOnly, bool $restore = false): array
     {
         $t0 = microtime(true);
         $batch = max(10, min(1000, $batch));
@@ -226,7 +226,7 @@ final class WhitelistScanner
         $owners = [];
         foreach ($plans as $i => $plan) {
             foreach ($plan['topics'] as $topic) {
-                $topics[] = $topic;
+                $topics[] = $restore && !isset($topic['visible']) ? $topic + ['restore' => true] : $topic;
                 $positions[] = $plan['position'];
                 $owners[] = $i;
             }
